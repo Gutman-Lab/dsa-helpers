@@ -1,0 +1,5 @@
+# Python environment directories.
+env/
+.env/
+pyenv/
+.pyenv/
