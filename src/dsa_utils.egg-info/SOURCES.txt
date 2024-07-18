@@ -1,0 +1,11 @@
+.gitignore
+LICENSE
+README.md
+pyproject.toml
+src/dsa_utils/__init__.py
+src/dsa_utils/login.py
+src/dsa_utils.egg-info/PKG-INFO
+src/dsa_utils.egg-info/SOURCES.txt
+src/dsa_utils.egg-info/dependency_links.txt
+src/dsa_utils.egg-info/requires.txt
+src/dsa_utils.egg-info/top_level.txt

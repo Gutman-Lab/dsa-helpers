@@ -1,0 +1,2 @@
+setuptools==71.0.3
+girder-client==3.2.3

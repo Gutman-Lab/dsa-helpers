@@ -1,21 +1,30 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "dsa_utils"
-version = "0.0.1"
-authors = [
-  { name="Juan Carlos Vizcarra", email="jvizcar@emory.edu" },
+dependencies = [
+    'girder-client==3.2.3'
 ]
-description = "Python library for working with the DSA Python girder client."
+name = "dsa_utils"
+authors = [
+    {name = "Juan C. Vizcarra", email = "jvizcar@emory.edu"},
+]
+maintainers = [
+    {name = "Juan C. Vizcarra", email = "jvizcar@emory.edu"}
+]
+description = "Utility functions for working with the DSA girder client."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
 ]
+keywords = ["dsa", "girder", "girder_client"]
+dynamic = ["version"]
+
+[tool.setuptools-git-versioning]
+enabled = true
 
 [project.urls]
-Homepage = "https://github.com/Gutman-Lab/dsa-python-utils"
+Repository = "https://github.com/Gutman-Lab/dsa-python-utils"
