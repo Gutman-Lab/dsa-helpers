@@ -1,7 +1,3 @@
-[build-system]
-requires = ["setuptools", "setuptools-scm"]
-build-backend = "setuptools.build_meta"
-
 [project]
 dependencies = [
     'girder-client==3.2.3'
@@ -23,8 +19,12 @@ classifiers = [
 keywords = ["dsa", "girder", "girder_client"]
 dynamic = ["version"]
 
-[tool.setuptools-git-versioning]
-enabled = true
-
 [project.urls]
 Repository = "https://github.com/Gutman-Lab/dsa-python-utils"
+
+[build-system]
+requires = ["setuptools>=42", "wheel", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+version_file = "dsa_utils/_version.py"
