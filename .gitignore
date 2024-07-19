@@ -4,3 +4,5 @@ pyenv/
 
 # Do not push the version file.
 dsa_utils/_version.py
+
+*.pyc
