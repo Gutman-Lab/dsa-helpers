@@ -43,18 +43,14 @@ def get_thumbnail(
     Returns:
         np.ndarray: The thumbnail image.
 
-    Raises:
-        ValueError: If neither mag, width, nor height is provided.
-
     """
-    if all([mag is None, width is None, height is None]):
-        raise ValueError("Either mag, width, or height must be provided.")
+    get_url = f"item/{item_id}/tiles/"
 
     if mag is not None:
-        get_url = f"item/{item_id}/tiles/region?magnification{mag}"
+        get_url += f"region?magnification={mag}&encoding=pickle"
     else:
         # Instead use width and height.
-        get_url = f"item/{item_id}/tiles/thumbnail?"
+        params = ["encoding=pickle"]
 
         if width is not None and height is not None:
             if isinstance(fill, (tuple, list)):
@@ -63,13 +59,13 @@ def get_thumbnail(
                 elif len(fill) == 4:
                     fill = f"rgba({fill[0]},{fill[1]},{fill[2]},{fill[3]})"
 
-            get_url += f"width={width}&height={height}&fill={fill}"
+            params.extend([f"width={width}", f"height={height}", f"fill={fill}"])
         elif width is not None:
-            get_url += f"width={width}"
-        else:
-            get_url += f"height={height}"
+            params.append(f"width={width}")
+        elif height is not None:
+            params.append(f"height={height}")
 
-    get_url += "&encoding=pickle"
+        get_url += "thumbnail?" + "&".join(params)
 
     response = gc.get(get_url, jsonResp=False)
 

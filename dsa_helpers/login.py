@@ -20,13 +20,7 @@ def login(
     Returns:
         girder_client.GirderClient: The authenticated girder client.
 
-    Raises:
-        ValueError: If neither login_or_email nor api_key is provided.
-
     """
-    if login_or_email is None and api_key is None:
-        raise ValueError("Either login_or_email or api_key must be provided.")
-
     gc = GirderClient(apiUrl=api_url)
 
     if api_key is None:
