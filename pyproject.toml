@@ -1,8 +1,13 @@
+[build-system]
+requires = ["setuptools>=42", "wheel", "setuptools_scm[toml]"]
+build-backend = "setuptools.build_meta"
+
 [project]
 dependencies = [
-    'girder-client==3.2.3'
+    'girder-client==3.2.3',
+    'numpy==2.0.0'
 ]
-name = "dsa_utils"
+name = "dsa_helpers"
 authors = [
     {name = "Juan C. Vizcarra", email = "jvizcar@emory.edu"},
 ]
@@ -17,16 +22,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 keywords = ["dsa", "girder", "girder_client"]
-dynamic = ["version"]
+version = "v0.1"
 
 [project.urls]
 Repository = "https://github.com/Gutman-Lab/dsa-python-utils"
-
-[build-system]
-requires = ["setuptools>=42", "wheel", "setuptools_scm"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools_scm]
-version_scheme = "guess-next-dev"
-local_scheme = "node-and-date"
-write_to = "dsa_utils/_version.py"
