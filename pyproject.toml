@@ -4,11 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 dependencies = [
-    'girder-client==3.2.3',
-    'numpy==2.0.0',
-    'setuptools==71.0.3',
-    'opencv-python==4.10.0.84',
-    'pandas==2.2.2'
+    'girder-client',
+    'numpy',
+    'setuptools',
+    'opencv-python',
+    'pandas',
+    'pymongo',
+    'pillow',
+    'dash',
+    'dash_bootstrap_components'
 ]
 name = "dsa_helpers"
 authors = [
@@ -25,7 +29,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 keywords = ["dsa", "girder", "girder_client"]
-version = "v0.3dev"
+version = "v0.3dev1"
 
 [project.urls]
 Repository = "https://github.com/Gutman-Lab/dsa-python-utils"

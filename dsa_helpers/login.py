@@ -24,7 +24,9 @@ def login(
     gc = GirderClient(apiUrl=api_url)
 
     if api_key is None:
-        if password is None:
+        if login_or_email is None:
+            _ = gc.authenticate(interactive=True)
+        elif password is None:
             _ = gc.authenticate(username=login_or_email, interactive=True)
         else:
             _ = gc.authenticate(username=login_or_email, password=password)

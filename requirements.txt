@@ -1,5 +1,10 @@
-setuptools==71.0.3
-girder-client==3.2.3
-numpy==2.0.0
-opencv-python==4.10.0.84
-pandas==2.2.2
+girder-client
+numpy
+setuptools
+opencv-python
+pandas
+pymongo
+jupyter
+pillow
+dash
+dash_bootstrap_components
