@@ -8,3 +8,4 @@ dsa_utils/_version.py
 *.pyc
 *.egg-info
 dist/
+.env

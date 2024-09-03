@@ -8,3 +8,4 @@ jupyter
 pillow
 dash
 dash_bootstrap_components
+python-dotenv

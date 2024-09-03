@@ -8,33 +8,47 @@ from PIL import Image
 from typing import Union
 
 
-def get_mongo_database(mongo_url: str | None = None, database: str | None = None) -> pymongo.database.Database:
-    """Get a mongo database. By default the Mongo URL will be assumed from local
-    environment variables:
-        "mongodb://$MONGO_INITDB_ROOT_USERNAME:$MONGO_INITDB_ROOT_PASSWORD@mongodb:27017"
-        
-    and the database will be assumed from the environment variable "MONGODB_DB".
-    
-    Args:
-        mongo_url (str): The mongo URL.
-        database (str): The database name.
-        
-    Returns:
-        pymongo.database.Database: The mongo database.
-    
-    """
-    if mongo_url is None:
-        mongo_url = f"mongodb://{getenv('MONGO_INITDB_ROOT_USERNAME')}:" + \
-                    f"{getenv('MONGO_INITDB_ROOT_PASSWORD')}" + \
-                    f"@{getenv('MONGO_HOST_NAME')}:{getenv("MONGO_HOST_PORT")}"
-    
-    mc = pymongo.MongoClient(mongo_url)
-    
-    if database is None:
-        database = getenv("MONGODB_DB")
+def get_mongo_client(
+    host: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
+    port: int | None = None,
+) -> pymongo.MongoClient:
+    """Get a mongo client by providing the key parts of the URL. By default
+    when the parameters are not passed, it sets them to default values first
+    by looking at key environment variables. If the environment variables are
+    not present it sets them to default values.
 
-    # Return the specific database.
-    return mc[database]
+    Args:
+        host (str, optional): The host name of the mongo server. If None it will
+            look for the environment variable "MONGO_HOST_NAME". If this is
+            missing it will default to "mongodb".
+        username (str, optional): The username to connect to the mongo server.
+            If None it will look for the environment variable
+            "MONGO_INITDB_ROOT_USERNAME". If this is missing it will default to
+            "docker".
+        password (str, optional): The password to connect to the mongo server.
+            If None it will look for the environment variable
+            "MONGO_INITDB_ROOT_PASSWORD". If this is missing it will default to
+            "docker".
+        port (int, optional): The port number of the mongo server. If None it
+            will look for the environment variable "MONGO_HOST_PORT". If this is
+            missing it will default to 27017.
+
+    Returns:
+        pymongo.MongoClient: The mongo client.
+
+    """
+    if username is None:
+        username = getenv("MONGO_INITDB_ROOT_USERNAME", "docker")
+    if password is None:
+        password = getenv("MONGO_INITDB_ROOT_PASSWORD", "docker")
+    if host is None:
+        host = getenv("MONGO_HOST_NAME", "mongodb")
+    if port is None:
+        port = int(getenv("MONGO_HOST_PORT", 27017))
+
+    return pymongo.MongoClient(f"mongodb://{username}:{password}@{host}:{port}")
 
 
 def chunks(lst: list, n=500):
@@ -50,20 +64,21 @@ def chunks(lst: list, n=500):
     """
     for i in range(0, len(lst), n):
         yield lst[i : i + n]
-        
-        
+
+
 def add_many_to_collection(
     mongo_collection: pymongo.collection.Collection,
-    items: dict | list, key: str = "_id"
+    items: dict | list,
+    key: str = "_id",
 ) -> dict[str | dict]:
     """Add items to a mongo collection. For this project we always add items with a unique
     user key.
-    
+
     Args:
         mongo_collection (pymongo.collection.Collection): The mongo collection to add to.
         items (dict | list): The items to add to the collection.
         key (str): The key to use to identify the items.
-        
+
     Returns:
         dict[str | dict]: The items added to the collection.
 
@@ -85,7 +100,9 @@ def add_many_to_collection(
     return items
 
 
-def get_img_from_db(mongo_db: pymongo.database.Database, img_id: str) -> Union[np.ndarray, None]:
+def get_img_from_db(
+    mongo_db: pymongo.database.Database, img_id: str
+) -> Union[np.ndarray, None]:
     """Get an image from the database by its location id.
 
     Args:
@@ -111,8 +128,8 @@ def get_img_from_db(mongo_db: pymongo.database.Database, img_id: str) -> Union[n
         src_img = np.array(Image.open(byte_io))
 
         return src_img
-    
-    
+
+
 def add_img_to_db(
     mongo_db: pymongo.database.Database,
     img: Image.Image | np.ndarray,
@@ -122,7 +139,7 @@ def add_img_to_db(
     Args:
         mongo_db (pymongo.database.Database): The mongo database.
         img (np.ndarray or PIL.Image.Image): The image.
-        
+
     Returns:
         str: The image id in the database.
 

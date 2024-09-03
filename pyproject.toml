@@ -12,7 +12,9 @@ dependencies = [
     'pymongo',
     'pillow',
     'dash',
-    'dash_bootstrap_components'
+    'dash_bootstrap_components',
+    'shapely',
+    'geopandas'
 ]
 name = "dsa_helpers"
 authors = [
@@ -29,7 +31,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 keywords = ["dsa", "girder", "girder_client"]
-version = "v0.3dev1"
+version = "v0.4dev0"
 
 [project.urls]
 Repository = "https://github.com/Gutman-Lab/dsa-python-utils"
