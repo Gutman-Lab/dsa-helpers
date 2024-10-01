@@ -37,6 +37,6 @@ def create_segformer_segmentation_dataset(
     )
 
     if transforms is not None:
-        dataset = dataset.set_transform(transforms)
+        dataset.set_transform(transforms)
 
     return dataset
