@@ -9,3 +9,7 @@ pillow
 dash
 dash_bootstrap_components
 python-dotenv
+torch
+datasets
+transformers
+torchvision
