@@ -1,5 +1,5 @@
 # Functions using the girder client.
-from girder_client import GirderClient
+from girder_client import GirderClient, HttpError
 import pickle
 import numpy as np
 import pandas as pd
@@ -319,3 +319,28 @@ def login(
         _ = gc.authenticate(apiKey=api_key)
 
     return gc
+
+
+def get_items(gc: GirderClient, parend_id: str) -> list[dict]:
+    """Get the items in a parent location recursively.
+
+    Args:
+        gc (girder_client.GirderClient): The authenticated girder client.
+        parend_id (str): The parent id to start the search (folder / collection).
+
+    Returns:
+        list[dict]: The list of items.
+
+    """
+    params = {"type": "folder", "limit": 0, "offset": 0, "sort": "_id", "sortdir": 1}
+
+    request_url = f"resource/{parend_id}/items"
+
+    try:
+        items = gc.get(request_url, parameters=params)
+    except HttpError:
+        params["type"] = "collection"
+
+        items = gc.get(request_url, parameters=params)
+
+    return items

@@ -31,7 +31,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 keywords = ["dsa", "girder", "girder_client"]
-version = "v0.4dev0"
+version = "v0.4dev3"
 
 [project.urls]
 Repository = "https://github.com/Gutman-Lab/dsa-python-utils"

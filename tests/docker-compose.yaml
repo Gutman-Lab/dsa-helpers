@@ -1,0 +1,31 @@
+volumes:
+  mongodb-data-volume:
+
+services:
+  mongodb:
+    image: mongo:7.0.6-jammy
+    restart: always
+    platform: linux/amd64
+    container_name: mongodb
+    volumes:
+      - mongodb-data-volume:/data/db
+    ports:
+      - 27017:27017
+    env_file: .env
+    command: [ "--quiet", "--maxConns", "1000" ]
+    logging:
+      options:
+        max-size: "10M"
+        max-file: "5"
+        
+  dash:
+    build: app/
+    platform: linux/amd64
+    volumes:
+      - ./app:/app
+    ports:
+      - 8060:8060
+    env_file: .env
+    command: python app.py
+    depends_on:
+      - mongodb

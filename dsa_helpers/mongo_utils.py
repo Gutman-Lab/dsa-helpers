@@ -13,7 +13,7 @@ def get_mongo_client(
     username: str | None = None,
     password: str | None = None,
     port: int | None = None,
-) -> pymongo.MongoClient:
+):
     """Get a mongo client by providing the key parts of the URL. By default
     when the parameters are not passed, it sets them to default values first
     by looking at key environment variables. If the environment variables are
@@ -36,7 +36,7 @@ def get_mongo_client(
             missing it will default to 27017.
 
     Returns:
-        pymongo.MongoClient: The mongo client.
+        The mongo client.
 
     """
     if username is None:
@@ -67,7 +67,7 @@ def chunks(lst: list, n=500):
 
 
 def add_many_to_collection(
-    mongo_collection: pymongo.collection.Collection,
+    mongo_collection,
     items: dict | list,
     key: str = "_id",
 ) -> dict[str | dict]:
@@ -75,7 +75,7 @@ def add_many_to_collection(
     user key.
 
     Args:
-        mongo_collection (pymongo.collection.Collection): The mongo collection to add to.
+        mongo_collection: The mongo collection to add to.
         items (dict | list): The items to add to the collection.
         key (str): The key to use to identify the items.
 
@@ -89,10 +89,8 @@ def add_many_to_collection(
 
     operations = []
 
-    for item in items:
-        operations.append(
-            pymongo.UpdateOne({"_id": item[key]}, {"$set": item}, upsert=True)
-        )
+    for _id, item in items.items():
+        operations.append(pymongo.UpdateOne({"_id": _id}, {"$set": item}, upsert=True))
 
     for chunk in chunks(operations):
         _ = mongo_collection.bulk_write(chunk)
@@ -100,13 +98,11 @@ def add_many_to_collection(
     return items
 
 
-def get_img_from_db(
-    mongo_db: pymongo.database.Database, img_id: str
-) -> Union[np.ndarray, None]:
+def get_img_from_db(mongo_db, img_id: str) -> Union[np.ndarray, None]:
     """Get an image from the database by its location id.
 
     Args:
-        mongo_db (pymongo.database.Database): The mongo database.
+        mongo_db: The mongo database.
         img_loc (str): The image id in mongo.
 
     Returns:
@@ -131,13 +127,13 @@ def get_img_from_db(
 
 
 def add_img_to_db(
-    mongo_db: pymongo.database.Database,
+    mongo_db,
     img: Image.Image | np.ndarray,
 ) -> str:
     """Add an image to the database.
 
     Args:
-        mongo_db (pymongo.database.Database): The mongo database.
+        mongo_db: The mongo database.
         img (np.ndarray or PIL.Image.Image): The image.
 
     Returns:
