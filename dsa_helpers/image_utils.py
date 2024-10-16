@@ -14,6 +14,7 @@ def tile_image(
     fill: int | tuple = (255, 255, 255),
     prepend_name: str = "",
     overwrite: bool = False,
+    grayscale: bool = False,
 ) -> pd.DataFrame:
     """Tile an image into smaller images.
 
@@ -28,6 +29,8 @@ def tile_image(
         prepend_name (str, optional): A string to prepend to the tile names.
         overwrite (bool, optional): Whether to overwrite existing images.
             Defaults to False.
+        grayscale (bool, optional): Whether to save images as grayscale instead
+            of the default RGB. Defaults to False.
 
     Returns:
         pandas.DataFrame: A DataFrame with the tile locations.
@@ -64,7 +67,7 @@ def tile_image(
             # Get the tile from the image.
             tile_img = img[y : y + tile_size, x : x + tile_size]
 
-            imwrite(save_fp, tile_img)
+            imwrite(save_fp, tile_img, grayscale=grayscale)
 
         df_data.append([save_fp, x, y, tile_size])
 

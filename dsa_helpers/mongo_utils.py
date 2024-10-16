@@ -9,6 +9,7 @@ from typing import Union
 
 
 def get_mongo_client(
+    protocol: str | None = None,
     host: str | None = None,
     username: str | None = None,
     password: str | None = None,
@@ -20,6 +21,9 @@ def get_mongo_client(
     not present it sets them to default values.
 
     Args:
+        protocol (str, optional): The protocol of the mongo server. If None it
+            look for the environment variable "MONGO_PROTOCOL". If this is
+            missing it will default to "mongodb".
         host (str, optional): The host name of the mongo server. If None it will
             look for the environment variable "MONGO_HOST_NAME". If this is
             missing it will default to "mongodb".
@@ -39,6 +43,8 @@ def get_mongo_client(
         The mongo client.
 
     """
+    if protocol is None:
+        protocol = getenv("MONGO_PROTOCOL", "mongodb")
     if username is None:
         username = getenv("MONGO_INITDB_ROOT_USERNAME", "docker")
     if password is None:
@@ -48,7 +54,7 @@ def get_mongo_client(
     if port is None:
         port = int(getenv("MONGO_HOST_PORT", 27017))
 
-    return pymongo.MongoClient(f"mongodb://{username}:{password}@{host}:{port}")
+    return pymongo.MongoClient(f"{protocol}://{username}:{password}@{host}:{port}")
 
 
 def chunks(lst: list, n=500):

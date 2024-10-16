@@ -9,3 +9,4 @@ dist/
 
 # Ignore data directory created for testing the package.
 tests/data/
+tests/models/
