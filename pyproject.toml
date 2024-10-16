@@ -15,9 +15,9 @@ dependencies = [
     'dash_bootstrap_components',
     'shapely',
     'geopandas',
+    "transformers[torch]",
     "torch",
     "datasets",
-    "transformers",
     "torchvision"
 ]
 name = "dsa_helpers"
