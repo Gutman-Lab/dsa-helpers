@@ -13,6 +13,7 @@ def tile_image(
     stride: int | None = None,
     fill: int | tuple = (255, 255, 255),
     prepend_name: str = "",
+    overwrite: bool = False,
 ) -> pd.DataFrame:
     """Tile an image into smaller images.
 
@@ -25,6 +26,8 @@ def tile_image(
         fill (int | tuple, optional): The fill value for tiles over the edges.
             Defaults to (255, 255, 255).
         prepend_name (str, optional): A string to prepend to the tile names.
+        overwrite (bool, optional): Whether to overwrite existing images.
+            Defaults to False.
 
     Returns:
         pandas.DataFrame: A DataFrame with the tile locations.
@@ -38,9 +41,7 @@ def tile_image(
 
     # Pad the image to avoid tiles not of the right size.
     save_loc = Path(save_loc)
-
-    if not save_loc.exists():
-        save_loc.mkdir(parents=True)
+    save_loc.mkdir(parents=True, exist_ok=True)
 
     if stride is None:
         stride = tile_size
@@ -49,17 +50,22 @@ def tile_image(
 
     xys = [(x, y) for x in range(0, w, stride) for y in range(0, h, stride)]
 
+    if prepend_name:
+        prepend_name += "_"
+
     for xy in xys:
+        # Get the top left and bottom right coordinates of the tile.
         x, y = xy
-        # Get the tile from the image.
-        tile_img = img[x : x + tile_size, y : y + tile_size]
 
-        save_fp = str(save_loc.joinpath(f"{prepend_name}x-{x}y-{y}.png"))
+        # Filepath for saving tile.
+        save_fp = save_loc / f"{prepend_name}x{x}y{y}tilesize{tile_size}.png"
 
-        imwrite(save_fp, tile_img)
+        if not save_fp.is_file() or overwrite:
+            # Get the tile from the image.
+            tile_img = img[y : y + tile_size, x : x + tile_size]
 
-        df_data.append([save_fp, x, y])
+            imwrite(save_fp, tile_img)
 
-    df = pd.DataFrame(df_data, columns=["fp", "x", "y"])
+        df_data.append([save_fp, x, y, tile_size])
 
-    return df
+    return pd.DataFrame(df_data, columns=["fp", "x", "y", "tile_size"])

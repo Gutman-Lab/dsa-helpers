@@ -2,10 +2,10 @@
 env/
 pyenv/
 
-# Do not push the version file.
-dsa_utils/_version.py
-
 *.pyc
 *.egg-info
 dist/
 .env
+
+# Ignore data directory created for testing the package.
+tests/data/
