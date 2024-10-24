@@ -63,7 +63,9 @@ def get_thumbnail(
                 elif len(fill) == 4:
                     fill = f"rgba({fill[0]},{fill[1]},{fill[2]},{fill[3]})"
 
-            params.extend([f"width={width}", f"height={height}", f"fill={fill}"])
+            params.extend(
+                [f"width={width}", f"height={height}", f"fill={fill}"]
+            )
         elif width is not None:
             params.append(f"width={width}")
         elif height is not None:
@@ -246,7 +248,10 @@ def _rotate_point_list(point_list, rotation, center=(0, 0)):
         y = point[1] - center[1]
 
         point_list_rotated.append(
-            (int(x * cos - y * sin + center[0]), int(x * sin + y * cos + center[1]))
+            (
+                int(x * cos - y * sin + center[0]),
+                int(x * sin + y * cos + center[1]),
+            )
         )
 
     return point_list_rotated
@@ -274,12 +279,19 @@ def get_rectangle_element_coords(element):
     x_max = center_x + w // 2
     y_min = center_y - h // 2
     y_max = center_y + h // 2
-    corner_coords = [(x_min, y_min), (x_max, y_min), (x_max, y_max), (x_min, y_max)]
+    corner_coords = [
+        (x_min, y_min),
+        (x_max, y_min),
+        (x_max, y_max),
+        (x_min, y_max),
+    ]
 
     # if there is rotation rotate
     if element["rotation"]:
         corner_coords = _rotate_point_list(
-            corner_coords, rotation=element["rotation"], center=(center_x, center_y)
+            corner_coords,
+            rotation=element["rotation"],
+            center=(center_x, center_y),
         )
 
     corner_coords = np.array(corner_coords, dtype=np.int32)
@@ -332,7 +344,13 @@ def get_items(gc: GirderClient, parend_id: str) -> list[dict]:
         list[dict]: The list of items.
 
     """
-    params = {"type": "folder", "limit": 0, "offset": 0, "sort": "_id", "sortdir": 1}
+    params = {
+        "type": "folder",
+        "limit": 0,
+        "offset": 0,
+        "sort": "_id",
+        "sortdir": 1,
+    }
 
     request_url = f"resource/{parend_id}/items"
 
@@ -344,3 +362,128 @@ def get_items(gc: GirderClient, parend_id: str) -> list[dict]:
         items = gc.get(request_url, parameters=params)
 
     return items
+
+
+def get_roi_with_yolo_labels_from_single_doc(
+    gc: GirderClient,
+    ann_doc: dict,
+    roi_element_group: str,
+    group_map: dict[str, int],
+    mag: float | None = None,
+    rgb_fill: tuple[int, int, int] = (114, 114, 114),
+) -> tuple[np.ndarray, str]:
+    """Get the ROI image with the YOLO labels given a DSA annotation document.
+
+    Args:
+        gc (girder_client.GirderClient): Authenticated girder client.
+        ann_doc (dict): Annotation document metadata.
+        roi_element_group (str): The group name of the ROI element.
+        group_map (dict[str, int]): Mapping of group names to group IDs.
+        mag (float, optional): The magnification to use for the ROI. Defaults to
+            None which uses the default magnification.
+        rgb_fill (tuple[int, int, int], optional): The RGB color to fill the ROI
+            with. Defaults to (114, 114, 114).
+
+    Returns:
+        tuple[np.ndarray, str]: The ROI image and YOLO labels data as string.
+
+    Raises:
+        ValueError: If multiple ROI elements are found in the document.
+        ValueError: If ROI element type is not polyline.
+
+    """
+    roi_element = None
+    box_elements = []
+
+    # Loop through all elements in the annotation document.
+    for element in ann_doc.get("annotation", {}).get("elements", []):
+        if element.get("group") == roi_element_group:
+            # Append the ROI element, there can't more than one.
+            if roi_element is not None:
+                raise ValueError("Multiple ROI elements found in the document.")
+
+            roi_element = element
+        elif element.get("group") in group_map:
+            # Append the box elements.
+            box_elements.append(element)
+
+    # Get the large image metadata.
+    large_image_metadata = get_item_large_image_metadata(gc, ann_doc["itemId"])
+    scan_mag = large_image_metadata["magnification"]
+
+    # Specify magnification to use.
+    if mag is None:
+        mag = scan_mag
+
+    # Calculate the factor to convert from scan mag to desired mag.
+    sf = mag / scan_mag
+
+    # Get the ROI image.
+    if roi_element.get("type") == "polyline":
+        # Grab the smallest bounding box.
+        points = np.array(roi_element["points"])[:, :2]  # remove z-axis
+        roi_x1, roi_y1 = points.min(axis=0)
+        roi_x2, roi_y2 = points.max(axis=0)
+
+        img = get_region(
+            gc,
+            ann_doc["itemId"],
+            roi_x1,
+            roi_y1,
+            roi_x2 - roi_x1,
+            roi_y2 - roi_y1,
+            mag=mag,
+        )[
+            :, :, :3
+        ]  # make sure it is RGB
+
+        # Shift the points to be relative to smallest bounding box.
+        points -= [roi_x1, roi_y1]
+
+        # Create a mask and draw the ROI filled on it (handles rotated ROIs).
+        mask = np.zeros(img.shape[:2], dtype=np.uint8)
+        mask = cv.drawContours(
+            mask, [(points * sf).astype(np.int32)], 0, 1, cv.FILLED
+        )
+
+        # Gray out regions outside of ROI.
+        img[np.where(mask == 0)] = rgb_fill
+    else:
+        raise ValueError("Only polyline ROIs are supported.")
+
+    roi_h, roi_w = img.shape[:2]
+
+    # Convert the box elements into YOLO format.
+    labels_data = ""
+
+    for element in box_elements:
+        if element.get("group") in group_map:
+            if element.get("type") != "rectangle":
+                print(f"Skipping element: {element.get('type')} not supported.")
+                continue
+
+            group_id = group_map[element.get("group")]
+
+            # Get the center of box and shift to be relative to ROI.
+            x_center, y_center = (
+                np.array(element["center"])[:2] - [roi_x1, roi_y1]
+            ) * sf
+
+            # Normalize the coordinates.
+            x_center /= roi_w
+            y_center /= roi_h
+
+            # Scale the box width and height and then normalize.
+            width, height = (
+                element["width"] * sf / roi_w,
+                element["height"] * sf / roi_h,
+            )
+
+            labels_data += f"{group_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n"
+        else:
+            print(
+                f"Skipping element: group {element.get('group')} not found in group map."
+            )
+
+    # Return the ROI image and labels data.
+    return img, labels_data.strip()
