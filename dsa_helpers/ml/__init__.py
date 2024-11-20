@@ -5,6 +5,7 @@ from . import (
     metrics,
     transforms,
     segformer_semantic_segmentation,
+    tiling,
 )
 
 # Modules that are imported from * notation.
@@ -14,4 +15,5 @@ __all__ = [
     "metrics",
     "transforms",
     "segformer_semantic_segmentation",
+    "tiling",
 ]

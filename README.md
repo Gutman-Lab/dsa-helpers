@@ -7,6 +7,9 @@ This library was tested using Python version 3.11.8 and uses the dependencies de
 
 This Python PyPI package is found [here](https://pypi.org/project/dsa-helpers/).
 
+## Extra dependencies
+If you are getting a large image error, then install large image using the instructions provided in their [GitHub page](https://github.com/girder/large_image#:~:text=pip%20install%20large%2Dimage%5Ball%5D%20%2D%2Dfind%2Dlinks%20https%3A//girder.github.io/large_image_wheels).
+
 ## Instructions for Development
 1. Install requirements for building and distributing package:
 ```
