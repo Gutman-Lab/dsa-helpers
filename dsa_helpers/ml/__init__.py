@@ -2,7 +2,6 @@
 from . import (
     object_detection,
     datasets,
-    metrics,
     transforms,
     segformer_semantic_segmentation,
     tiling,

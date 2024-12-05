@@ -6,6 +6,7 @@ import pandas as pd
 from pathlib import Path
 import cv2 as cv
 from copy import deepcopy
+from geopandas import GeoDataFrame
 
 
 def get_item_large_image_metadata(gc: GirderClient, item_id: str) -> dict:
@@ -487,3 +488,86 @@ def get_roi_with_yolo_labels_from_single_doc(
 
     # Return the ROI image and labels data.
     return img, labels_data.strip()
+
+
+def post_annotations_from_gdf(
+    gc: GirderClient,
+    item_id: str,
+    doc_name: str,
+    gdf: GeoDataFrame,
+    idx_config: dict,
+    tolerance: float = 0.5,
+    max_points: int = 1000,
+) -> dict:
+    """Post annotations from a GeoDataFrame to the DSA.
+
+    Args:
+        gc (girder_client.GirderClient): The authenticated girder client.
+        item_id (str): The item id to post the annotations.
+        doc_name (str): The name of the document.
+        gdf (GeoDataFrame): The GeoDataFrame with the polygons.
+        idx_config (dict): For each label in the GeoDataFrame, the configuration
+            for the DSA annotation. Include "label", "fillColor", "lineColor", and
+            "group".
+        tolerance (float, optional): The tolerance to simplify the polygons.
+            Defaults to 0.5.
+        max_points (int, optional): If polygon has more than max_points,
+            simplify the polygon. Defaults to 1000.
+
+    Returns:
+        dict: The response from the DSA.
+
+    """
+    elements = []
+
+    # Process the dataframe.
+    for _, row in gdf.iterrows():
+        # Flatten multipolygon to list of polygons.
+        list_of_polygons = list(row["geometry"].geoms)  # assuming multipolygons
+        label = row["label"]
+
+        for poly in list_of_polygons:
+            exterior_poly = list(poly.exterior.coords)
+            interior_polys = [
+                list(interior.coords) for interior in poly.interiors
+            ]
+
+            if len(exterior_poly) > max_points:
+                poly = poly.simplify(tolerance, preserve_topology=True)
+                exterior_poly = list(poly.exterior.coords)
+
+            points = [
+                [int(xy[0]) * 2, int(xy[1]) * 2, 0] for xy in exterior_poly
+            ]
+
+            holes = []
+
+            for interior_poly in interior_polys:
+                hole = [
+                    [int(xy[0]) * 2, int(xy[1]) * 2, 0] for xy in interior_poly
+                ]
+                holes.append(hole)
+
+            element = {
+                "points": points,
+                "fillColor": idx_config[label]["fillColor"],
+                "lineColor": idx_config[label]["lineColor"],
+                "type": "polyline",
+                "lineWidth": 2,
+                "closed": True,
+                "label": {"value": idx_config[label]["label"]},
+                "group": idx_config[label]["group"],
+            }
+
+            if len(holes):
+                element["holes"] = holes
+
+            elements.append(element)
+
+    response = gc.post(
+        "/annotation",
+        parameters={"itemId": item_id},
+        json={"name": doc_name, "description": "", "elements": elements},
+    )
+
+    return response
