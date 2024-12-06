@@ -6,7 +6,7 @@ build:
     python: "3.12"
   jobs:
     pre_build:
-      - phinx-apidoc -o docs/source dsa_helpers/
+      - sphinx-apidoc -o docs/source dsa_helpers/
 
 python:
   install:
