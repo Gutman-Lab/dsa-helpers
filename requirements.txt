@@ -13,3 +13,4 @@ transformers[torch]
 datasets
 torchvision
 large-image
+sphinx_rtd_theme
