@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 
 from ... import imread
-from ...image_utils import tile_image
+from ...tiling import tile_image
 
 
 def inference(
@@ -115,7 +115,9 @@ def inference(
     predicted_mask = predicted_mask[:h, :w]
 
     # Extract the contours of the mask.
-    contours = cv.findContours(predicted_mask, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)[0]
+    contours = cv.findContours(
+        predicted_mask, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE
+    )[0]
 
     # Return the mask.
     return predicted_mask, contours

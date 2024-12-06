@@ -258,17 +258,16 @@ def _rotate_point_list(point_list, rotation, center=(0, 0)):
     return point_list_rotated
 
 
-def get_rectangle_element_coords(element):
+def get_rectangle_element_coords(element: dict) -> np.ndarray:
     """Get the corner coordinate from a rectangle HistomicsUI element, can handle rotated elements.
     Adapted from: https://github.com/DigitalSlideArchive/HistomicsTK/blob/master/histomicstk/annotations_and_masks/annotation_and_mask_utils.py
-    INPUTS
-    ------
-    element : dict
-        rectangle element, in HistomicsUI format
-    RETURN
-    ------
-    corner_coords : array
-        array of shape [4, 2] for the four corners of the rectangle in (x, y) format
+
+    Args:
+        element (dict): rectangle element from HistomicsUI annotation.
+
+    Returns:
+    corner_coords (np.ndarray): 4x2 array of corner coordinates of rectangle.
+
     """
     # element is a dict so prevent referencing
     element = deepcopy(element)
