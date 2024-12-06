@@ -88,19 +88,19 @@ def get_region(
     height: int,
     mag: float | None = None,
 ) -> np.ndarray:
-    """Get a region of the image for an item. Note that the output image might
-    not be in the shape (width, height) if left + width or top + height exceeds
-    the image size. The outpuzerositem id.
+    """Get image region from DSA. Note that the output image might not
+    be in the shape (width, height) if left + width or top + height
+    exceeds the image size.
+
+    Args:
+        gc (girder_client.GirderClient): The authenticated girder client.
+        item_id (str): The item id.
         left (int): The left coordinate.
         top (int): The top coordinate.
         width (int): The width of the region.
         height (int): The height of the region.
-        mag (float, optional): The magnification. Defaults to None which returns
-            the image at scan magnification. Using a mag lower than the scan
-            magnification will result in an ouptut image smaller than the
-            width and height. Similarly, using a mag higher than the scan
-            magnification will result in an output image larger than the width
-            and height.
+        mag (float, optional): The magnification. Defaults to None which
+            returns the image at the scan magnification.
 
     Returns:
         np.ndarray: The region of the image.
@@ -400,7 +400,9 @@ def get_roi_with_yolo_labels_from_single_doc(
         if element.get("group") == roi_element_group:
             # Append the ROI element, there can't more than one.
             if roi_element is not None:
-                raise ValueError("Multiple ROI elements found in the document.")
+                raise ValueError(
+                    "Multiple ROI elements found in the document."
+                )
 
             roi_element = element
         elif element.get("group") in group_map:
@@ -459,7 +461,9 @@ def get_roi_with_yolo_labels_from_single_doc(
     for element in box_elements:
         if element.get("group") in group_map:
             if element.get("type") != "rectangle":
-                print(f"Skipping element: {element.get('type')} not supported.")
+                print(
+                    f"Skipping element: {element.get('type')} not supported."
+                )
                 continue
 
             group_id = group_map[element.get("group")]
@@ -522,7 +526,9 @@ def post_annotations_from_gdf(
     # Process the dataframe.
     for _, row in gdf.iterrows():
         # Flatten multipolygon to list of polygons.
-        list_of_polygons = list(row["geometry"].geoms)  # assuming multipolygons
+        list_of_polygons = list(
+            row["geometry"].geoms
+        )  # assuming multipolygons
         label = row["label"]
 
         for poly in list_of_polygons:

@@ -1,0 +1,15 @@
+girder-client
+numpy
+setuptools
+opencv-python
+pandas
+pymongo
+pillow
+dash
+dash-bootstrap-components
+shapely
+geopandas
+transformers[torch]
+datasets
+torchvision
+large-image
