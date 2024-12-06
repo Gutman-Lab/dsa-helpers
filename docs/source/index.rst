@@ -15,4 +15,6 @@ documentation for details.
    :maxdepth: 2
    :caption: Contents:
 
-   modules
+.. automodule:: dsa_helpers
+   :members:
+   :undoc-members:
