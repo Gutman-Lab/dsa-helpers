@@ -15,13 +15,8 @@ def get_header(
     Args:
         dsa_api_url (str): The URL of the DSA API.
         title (str, optional): The title of the application. Defaults to "App".
-        config (dict, optional): The configuration of the component. Defaults to None.
-            If None the default configuration is:
-            {
-                "backgroundColor": "#012169",
-                "titleColor": "#d9d9d6",
-                "fontColor": "#f2a900",
-            }
+        config (dict, optional): The configuration of the component.
+            Defaults to None which uses default settings.
 
     Returns:
         html.Div: The header component.
@@ -38,7 +33,8 @@ def get_header(
             dbc.ModalBody(
                 [
                     html.Div(
-                        "Login or email", style={"margin": 5, "fontWeight": "bold"}
+                        "Login or email",
+                        style={"margin": 5, "fontWeight": "bold"},
                     ),
                     dbc.Input(
                         id=f"{store_id}=login",
@@ -48,7 +44,11 @@ def get_header(
                     ),
                     html.Div(
                         "Password",
-                        style={"margin": 5, "marginTop": 15, "fontWeight": "bold"},
+                        style={
+                            "margin": 5,
+                            "marginTop": 15,
+                            "fontWeight": "bold",
+                        },
                     ),
                     dbc.Input(
                         id=f"{store_id}=password",
@@ -60,7 +60,11 @@ def get_header(
                         "Login failed.",
                         hidden=True,
                         id=f"{store_id}=login-failed",
-                        style={"color": "red", "fontWeight": "bold", "margin": 10},
+                        style={
+                            "color": "red",
+                            "fontWeight": "bold",
+                            "margin": 10,
+                        },
                     ),
                 ],
             ),

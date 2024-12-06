@@ -1,3 +1,3 @@
 from .SegFormerSegmentationDataset import SegFormerSegmentationDataset
 
-__all__ = ["SegFormerSegmentationDataset", "utils"]
+__all__ = ["utils"]

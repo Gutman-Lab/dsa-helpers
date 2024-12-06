@@ -1,0 +1,241 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>dsa_helpers.ml.object_detection.tile_image &mdash; DSA Helpers 00.00.01 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=d7bb8d4d"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            DSA Helpers
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../modules.html">dsa_helpers</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">DSA Helpers</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">dsa_helpers.ml.object_detection.tile_image</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for dsa_helpers.ml.object_detection.tile_image</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+<span class="kn">from</span> <span class="nn">geopandas</span> <span class="kn">import</span> <span class="n">GeoDataFrame</span>
+<span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">import</span> <span class="nn">cv2</span> <span class="k">as</span> <span class="nn">cv</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+
+<span class="kn">from</span> <span class="nn">...</span> <span class="kn">import</span> <span class="n">imread</span><span class="p">,</span> <span class="n">imwrite</span>
+<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">read_yolo_label</span><span class="p">,</span> <span class="n">corners_to_polygon</span>
+
+
+<div class="viewcode-block" id="tile_image">
+<a class="viewcode-back" href="../../../../dsa_helpers.ml.object_detection.html#dsa_helpers.ml.object_detection.tile_image.tile_image">[docs]</a>
+<span class="k">def</span> <span class="nf">tile_image</span><span class="p">(</span>
+    <span class="n">fp</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">label_fp</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">save_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;.&quot;</span><span class="p">,</span>
+    <span class="n">tile_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1280</span><span class="p">,</span>
+    <span class="n">stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">boundary_thr</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
+    <span class="n">fill</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mi">114</span><span class="p">,</span> <span class="mi">114</span><span class="p">,</span> <span class="mi">114</span><span class="p">),</span>
+    <span class="n">box_thr</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Tile an ROI image with labels.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fp: Image filepath, should be in an &#39;/images/ directory&#39;.</span>
+<span class="sd">        save_dir: Location to save images and labels.</span>
+<span class="sd">        tile_size: Size of tile, uses square tiles only.</span>
+<span class="sd">        stride: Stride to use when tiling, if None then it is set equal to</span>
+<span class="sd">            tile_size (no overlap between tiles).</span>
+<span class="sd">        boundary_thr: If ROI has a boundary (for rotated ROIs) then a tile must</span>
+<span class="sd">            have sufficient area in boundary to be included (0.0 - 1.0).</span>
+<span class="sd">        fill: RGB when padding image.</span>
+<span class="sd">        box_thr: Area threshold of box that must be in a tile.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Metadata of tiles saved.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Read the image.</span>
+    <span class="n">img</span> <span class="o">=</span> <span class="n">imread</span><span class="p">(</span><span class="n">fp</span><span class="p">)</span>
+    <span class="n">h</span><span class="p">,</span> <span class="n">w</span> <span class="o">=</span> <span class="n">img</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span>
+
+    <span class="c1"># Get the name of the file.</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">fp</span><span class="p">)</span><span class="o">.</span><span class="n">stem</span>
+
+    <span class="c1"># Get the label if it exists.</span>
+    <span class="n">labels</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">if</span> <span class="n">label_fp</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">labels</span> <span class="o">=</span> <span class="n">read_yolo_label</span><span class="p">(</span><span class="n">label_fp</span><span class="p">,</span> <span class="n">im_shape</span><span class="o">=</span><span class="p">(</span><span class="n">w</span><span class="p">,</span> <span class="n">h</span><span class="p">),</span> <span class="n">convert</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="c1"># Convert the labels into a GeoDataFrame.</span>
+    <span class="n">label_df</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">box</span> <span class="ow">in</span> <span class="n">labels</span><span class="p">:</span>
+        <span class="n">label</span> <span class="o">=</span> <span class="n">box</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">x1</span><span class="p">,</span> <span class="n">y1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">y2</span> <span class="o">=</span> <span class="n">box</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="mi">5</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+
+        <span class="n">label_df</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">label</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span> <span class="n">y1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">y2</span><span class="p">,</span> <span class="n">corners_to_polygon</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">y1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">y2</span><span class="p">)])</span>
+
+    <span class="n">label_df</span> <span class="o">=</span> <span class="n">GeoDataFrame</span><span class="p">(</span>
+        <span class="n">label_df</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;label&quot;</span><span class="p">,</span> <span class="s2">&quot;x1&quot;</span><span class="p">,</span> <span class="s2">&quot;y1&quot;</span><span class="p">,</span> <span class="s2">&quot;x2&quot;</span><span class="p">,</span> <span class="s2">&quot;y2&quot;</span><span class="p">,</span> <span class="s2">&quot;geometry&quot;</span><span class="p">]</span>
+    <span class="p">)</span>
+    <span class="n">label_areas</span> <span class="o">=</span> <span class="n">label_df</span><span class="o">.</span><span class="n">area</span>
+
+    <span class="c1"># Depracated code for rotated ROIs.</span>
+    <span class="n">roi</span> <span class="o">=</span> <span class="n">corners_to_polygon</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">h</span><span class="p">)</span>
+
+    <span class="c1"># Make the directories to save images and label files.</span>
+    <span class="n">img_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">save_dir</span><span class="p">)</span> <span class="o">/</span> <span class="s2">&quot;images&quot;</span>
+    <span class="n">img_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">label_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">save_dir</span><span class="p">)</span> <span class="o">/</span> <span class="s2">&quot;labels&quot;</span>
+    <span class="n">label_dir</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="c1"># Default stride is no-overlap.</span>
+    <span class="k">if</span> <span class="n">stride</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">stride</span> <span class="o">=</span> <span class="n">tile_size</span>  <span class="c1"># default behavior - no overlap</span>
+
+    <span class="c1"># Pad the image to avoid getting tiles not of the right size.</span>
+    <span class="n">img</span> <span class="o">=</span> <span class="n">cv</span><span class="o">.</span><span class="n">copyMakeBorder</span><span class="p">(</span>
+        <span class="n">img</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">tile_size</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">tile_size</span><span class="p">,</span> <span class="n">cv</span><span class="o">.</span><span class="n">BORDER_CONSTANT</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="n">fill</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Get the top left corner of each tile.</span>
+    <span class="n">xys</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(((</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">stride</span><span class="p">)</span> <span class="k">for</span> <span class="n">y</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">stride</span><span class="p">)))</span>
+
+    <span class="n">tile_df</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># track tile data.</span>
+
+    <span class="c1"># Pre-calculate the number of pixels in tile that must be in ROI to include.</span>
+    <span class="n">intersection_thr</span> <span class="o">=</span> <span class="n">tile_size</span><span class="o">**</span><span class="mi">2</span> <span class="o">*</span> <span class="n">boundary_thr</span>
+
+    <span class="c1"># loop through each tile coordinate</span>
+    <span class="k">for</span> <span class="n">xy</span> <span class="ow">in</span> <span class="n">xys</span><span class="p">:</span>
+        <span class="c1"># Check if this tile is sufficiently in the boundary.</span>
+        <span class="n">x1</span><span class="p">,</span> <span class="n">y1</span> <span class="o">=</span> <span class="n">xy</span>
+        <span class="n">x2</span><span class="p">,</span> <span class="n">y2</span> <span class="o">=</span> <span class="n">x1</span> <span class="o">+</span> <span class="n">tile_size</span><span class="p">,</span> <span class="n">y1</span> <span class="o">+</span> <span class="n">tile_size</span>
+
+        <span class="n">tile_pol</span> <span class="o">=</span> <span class="n">corners_to_polygon</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">y1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">y2</span><span class="p">)</span>
+        <span class="n">intersection</span> <span class="o">=</span> <span class="n">roi</span><span class="o">.</span><span class="n">intersection</span><span class="p">(</span><span class="n">tile_pol</span><span class="p">)</span><span class="o">.</span><span class="n">area</span>
+
+        <span class="k">if</span> <span class="n">intersection</span> <span class="o">&gt;</span> <span class="n">intersection_thr</span><span class="p">:</span>
+            <span class="c1"># Get the tile image.</span>
+            <span class="n">tile</span> <span class="o">=</span> <span class="n">img</span><span class="p">[</span><span class="n">y1</span><span class="p">:</span><span class="n">y2</span><span class="p">,</span> <span class="n">x1</span><span class="p">:</span><span class="n">x2</span><span class="p">]</span>
+
+            <span class="c1"># Create a name for the tile image / label.</span>
+            <span class="n">fn</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">_x</span><span class="si">{</span><span class="n">x1</span><span class="si">}</span><span class="s2">y</span><span class="si">{</span><span class="n">y1</span><span class="si">}</span><span class="s2">x</span><span class="si">{</span><span class="n">x2</span><span class="si">}</span><span class="s2">y</span><span class="si">{</span><span class="n">y2</span><span class="si">}</span><span class="s2">&quot;</span>
+
+            <span class="n">img_fp</span> <span class="o">=</span> <span class="n">img_dir</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fn</span><span class="si">}</span><span class="s2">.png&quot;</span>
+
+            <span class="n">tile_df</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">img_fp</span><span class="p">,</span> <span class="n">x1</span><span class="p">,</span> <span class="n">y1</span><span class="p">,</span> <span class="n">x2</span><span class="p">,</span> <span class="n">y2</span><span class="p">])</span>
+
+            <span class="n">imwrite</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">img_fp</span><span class="p">),</span> <span class="n">tile</span><span class="p">)</span>
+
+            <span class="c1"># Find all boxes that intersect</span>
+            <span class="n">label_intersection</span> <span class="o">=</span> <span class="n">label_df</span><span class="o">.</span><span class="n">geometry</span><span class="o">.</span><span class="n">intersection</span><span class="p">(</span><span class="n">tile_pol</span><span class="p">)</span><span class="o">.</span><span class="n">area</span>
+
+            <span class="n">tile_boxes</span> <span class="o">=</span> <span class="n">label_df</span><span class="p">[</span><span class="n">label_intersection</span> <span class="o">/</span> <span class="n">label_areas</span> <span class="o">&gt;</span> <span class="n">box_thr</span><span class="p">]</span>
+
+            <span class="c1"># save these as normalized labels, threshold the box edges.</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">tile_boxes</span><span class="p">):</span>
+                <span class="n">labels</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+
+                <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">tile_boxes</span><span class="o">.</span><span class="n">iterrows</span><span class="p">():</span>
+                    <span class="c1"># Shift coordinates to be relative to this tile.</span>
+                    <span class="n">xx1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">x1</span> <span class="o">-</span> <span class="n">x1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">tile_size</span><span class="p">)</span> <span class="o">/</span> <span class="n">tile_size</span>
+                    <span class="n">yy1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">y1</span> <span class="o">-</span> <span class="n">y1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">tile_size</span><span class="p">)</span> <span class="o">/</span> <span class="n">tile_size</span>
+                    <span class="n">xx2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">x2</span> <span class="o">-</span> <span class="n">x1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">tile_size</span><span class="p">)</span> <span class="o">/</span> <span class="n">tile_size</span>
+                    <span class="n">yy2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">y2</span> <span class="o">-</span> <span class="n">y1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">tile_size</span><span class="p">)</span> <span class="o">/</span> <span class="n">tile_size</span>
+
+                    <span class="n">xc</span><span class="p">,</span> <span class="n">yc</span> <span class="o">=</span> <span class="p">(</span><span class="n">xx1</span> <span class="o">+</span> <span class="n">xx2</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span> <span class="p">(</span><span class="n">yy1</span> <span class="o">+</span> <span class="n">yy2</span><span class="p">)</span> <span class="o">/</span> <span class="mi">2</span>
+                    <span class="n">bw</span><span class="p">,</span> <span class="n">bh</span> <span class="o">=</span> <span class="n">xx2</span> <span class="o">-</span> <span class="n">xx1</span><span class="p">,</span> <span class="n">yy2</span> <span class="o">-</span> <span class="n">yy1</span>
+                    <span class="n">labels</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">r</span><span class="o">.</span><span class="n">label</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">xc</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">yc</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">bw</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">bh</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+
+                <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">label_dir</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fn</span><span class="si">}</span><span class="s2">.txt&quot;</span><span class="p">),</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fh</span><span class="p">:</span>
+                    <span class="n">fh</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">labels</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+
+    <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">tile_df</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;fp&quot;</span><span class="p">,</span> <span class="s2">&quot;x1&quot;</span><span class="p">,</span> <span class="s2">&quot;y1&quot;</span><span class="p">,</span> <span class="s2">&quot;x2&quot;</span><span class="p">,</span> <span class="s2">&quot;y2&quot;</span><span class="p">])</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, Juan Carlos Vizcarra.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

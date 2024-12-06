@@ -1,3 +1,3 @@
 from .inference import inference
 
-__all__ = ["inference"]
+__all__ = []
