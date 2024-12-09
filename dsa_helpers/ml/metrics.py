@@ -55,63 +55,69 @@ def binary_dice_coefficient(eval_pred: tuple[np.ndarray, np.ndarray]) -> dict:
         return {"dice_coefficient": dice}
 
 
-def mean_iou(eval_pred: tuple[np.ndarray, np.ndarray]) -> dict:
-    """Compute the mean intersection over union (IoU) for semantic
-    segmentation. Also returns the IoU for each class.
+def mean_iou(label2idx: dict):
+    """Return the compute metric function for mean intersection over
+    union for a multi-class semantic segmentation task.
 
     Args:
-        eval_pred (tuple[numpy.ndarray, numpy.ndarray]): Tuple of
-            logits and labels.
+        label2idx (dict): A dictionary mapping class labels to indices.
 
     Returns:
-        dict: Dictionary of metrics.
+        function: The compute_metrics function.
 
     """
-    with torch.no_grad():
-        logits, labels = eval_pred
+    idx2label = {v: k for k, v in label2idx.items()}
 
-        # Convert logits to tensor.
-        logits_tensor = torch.from_numpy(logits).cpu()
-        labels_tensor = torch.from_numpy(labels).cpu()
+    def compute_metrics(eval_pred):
+        """Compute the mean intersection over union (IoU) for semantic
+        segmentation. Also returns the IoU for each class."""
+        with torch.no_grad():
+            logits, labels = eval_pred
 
-        # From logits get the number of classes in the dataset.
-        num_classes = logits.shape[1]
+            # Convert logits to tensor.
+            logits_tensor = torch.from_numpy(logits).cpu()
+            labels_tensor = torch.from_numpy(labels).cpu()
 
-        # Scale the logits back to the shape of the labels.
-        logits_tensor = nn.functional.interpolate(
-            logits_tensor,
-            size=labels.shape[-2:],
-            mode="bilinear",
-            align_corners=False,
-        )
+            # From logits get the number of classes in the dataset.
+            num_classes = logits.shape[1]
 
-        # Turn the logits to predictions.
-        pred = logits_tensor.argmax(dim=1)
-
-        # Calculate the IoU for each class.
-        ious = []
-
-        metrics = {}
-
-        for cls in range(num_classes):
-            pred_mask = pred == cls
-            labels_mask = labels_tensor == cls
-
-            intersection = (
-                torch.logical_and(pred_mask, labels_mask).sum().item()
+            # Scale the logits back to the shape of the labels.
+            logits_tensor = nn.functional.interpolate(
+                logits_tensor,
+                size=labels.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
             )
-            union = torch.logical_or(pred_mask, labels_mask).sum().item()
 
-            if union == 0:
-                iou = float("nan")  # or 1.0
-            else:
-                iou = intersection / union
+            # Turn the logits to predictions.
+            pred = logits_tensor.argmax(dim=1)
 
-            metrics[f"label {cls} IoU"] = iou
+            # Calculate the IoU for each class.
+            ious = []
 
-            ious.append(iou)
+            metrics = {}
 
-        mean_iou = np.nanmean(ious)  # Use NumPy for NaN handling
-        metrics["mean_iou"] = mean_iou
+            for cls in range(num_classes):
+                pred_mask = pred == cls
+                labels_mask = labels_tensor == cls
 
-        return metrics
+                intersection = (
+                    torch.logical_and(pred_mask, labels_mask).sum().item()
+                )
+                union = torch.logical_or(pred_mask, labels_mask).sum().item()
+
+                if union == 0:
+                    iou = float("nan")  # or 1.0
+                else:
+                    iou = intersection / union
+
+                metrics[f"{idx2label[cls]}_iou"] = iou
+
+                ious.append(iou)
+
+            mean_iou = np.nanmean(ious)  # Use NumPy for NaN handling
+            metrics["mean_iou"] = mean_iou
+
+            return metrics
+
+    return compute_metrics
