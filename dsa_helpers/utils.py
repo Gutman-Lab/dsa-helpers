@@ -10,7 +10,7 @@ def mask_to_shapely(
     mask: str | np.ndarray,
     x_offset: int = 0,
     y_offset: int = 0,
-    background_label: int = 0,
+    background_label: int | None = 0,
     min_area: int = 0,
 ) -> list[Polygon, int]:
     """
@@ -20,9 +20,12 @@ def mask_to_shapely(
     Args:
         mask (str | np.ndarray): Path to the mask image or the mask.
         x_offset (int): Offset to add to x coordinates of polygons.
+            Default is 0.
         y_offset (int): Offset to add to y coordinates of polygons.
-        background_label (int): Label value of the background class,
-            which is ignored.
+            Default is 0.
+        background_label (int | None): Label value of the background class,
+            which is ignored. Default is 0. If None then all labels are
+            considered.
 
     Returns:
         list[Polygon, int]: List of polygons and their corresponding

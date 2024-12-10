@@ -5,6 +5,7 @@ from . import (
     transforms,
     segformer_semantic_segmentation,
     callbacks,
+    evaluate,
 )
 
 # Modules that are imported from * notation.
@@ -15,4 +16,5 @@ __all__ = [
     "transforms",
     "segformer_semantic_segmentation",
     "callbacks",
+    "evaluate",
 ]

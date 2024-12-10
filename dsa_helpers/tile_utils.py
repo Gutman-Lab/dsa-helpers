@@ -8,7 +8,9 @@ from geopandas import GeoDataFrame
 from .utils import mask_to_shapely
 
 
-def merge_tile_masks(tile_list: list, buffer: int = 1) -> GeoDataFrame:
+def merge_tile_masks(
+    tile_list: list, buffer: int = 1, background_label: int | None = 0
+) -> GeoDataFrame:
     """
     Merge the tile masks into a single mask for a large image.
 
@@ -17,6 +19,9 @@ def merge_tile_masks(tile_list: list, buffer: int = 1) -> GeoDataFrame:
             (1) fp or array for mask, (2) x-coordinate for tile, (3)
             y-coordinate for tile.
         buffer (int): Buffer to apply to the polygons before dissolving.
+        background_label (int | None): Label value of the background class,
+            which is ignored. Default is 0. If None then all labels are
+            considered.
 
     Returns:
         GeoDataFrame: GeoDataFrame with the merged mask.
@@ -30,7 +35,9 @@ def merge_tile_masks(tile_list: list, buffer: int = 1) -> GeoDataFrame:
 
         # Process the mask by converting it to polygons.
         polygons_and_labels.extend(
-            mask_to_shapely(tile, x_offset=x, y_offset=y)
+            mask_to_shapely(
+                tile, x_offset=x, y_offset=y, background_label=background_label
+            )
         )
 
     # Convert polygons and labels into a GeoDataFrame.
@@ -44,5 +51,10 @@ def merge_tile_masks(tile_list: list, buffer: int = 1) -> GeoDataFrame:
 
     # Remove the buffer.
     gdf["geometry"] = gdf["geometry"].buffer(-buffer)
+
+    # Check that all polygons are valid.
+    for i, row in gdf.iterrows():
+        if not row["geometry"].is_valid:
+            gdf.loc[i, "geometry"] = row["geometry"].buffer(0)
 
     return gdf
