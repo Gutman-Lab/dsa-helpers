@@ -576,3 +576,95 @@ def post_annotations_from_gdf(
     )
 
     return response
+
+
+def get_thumbnail_with_mask(
+    gc: GirderClient,
+    item_id: str,
+    mag: float,
+    doc_name: str,
+    label2id: dict,
+    background_label: int = 0,
+):
+    """Get the thumbnail (i.e. low resolution image) and a label mask
+    drawn from annotation documents for an item.
+
+    Args:
+        gc (girder_client.GirderClient): The Girder client to use.
+        item_id (str): The item id of the image to get the thumbnail
+            and mask from.
+        mag (float): The magnification to get the thumbnail at.
+        doc_name (str): The name of the annotation document(s) to use.
+        label2id (dict): A dictionary mapping the label names to ids,
+            for generating the mask.
+        background_label (int, optional): The label to use for the
+            background. Defaults to 0.
+
+    Returns:
+        tuple: A tuple containing the thumbnail image and the mask.
+
+    """
+    # Get the thumbnail of the image.
+    thumbnail = get_thumbnail(gc, item_id, mag=mag)[:, :, :3]
+
+    # Get the width and h eight of the thumbnail.
+    h, w = thumbnail.shape[:2]
+
+    # Get the item large image metadata to get its scan magnification.
+    large_image_metadata = gc.get(f"item/{item_id}/tiles")
+    scan_mag = large_image_metadata["magnification"]
+
+    # Calculate a scale factor to go from full scale coordinates to thumbnail ones.
+    sf = mag / scan_mag
+
+    # Create a blank background mask.
+    mask = np.ones((h, w), dtype=np.uint8) * background_label
+
+    # Get annotation metadata for docs of interest.
+    for ann_doc in gc.get(
+        f"annotation",
+        parameters={"itemId": item_id, "name": doc_name, "limit": 0},
+    ):
+        # Get the full annotation document.
+        doc = gc.get(f"annotation/{ann_doc['_id']}")
+
+        # Get the elements.
+        for element in doc.get("annotation", {}).get("elements", []):
+            # Check if the label of the element is in the label2id dictionary.
+            if element.get("label", {}).get("value") not in label2id:
+                continue
+
+            label = element["label"]["value"]
+
+            # Create a mask for this element as background.
+            element_mask = np.ones((h, w), dtype=np.uint8) * background_label
+
+            if element["type"] == "polyline":
+                points = (np.array(element["points"])[:, :2] * sf).astype(int)
+
+                holes = []
+
+                for hole in element.get("holes", []):
+                    holes.append((np.array(hole)[:, :2] * sf).astype(int))
+            elif element["rectangle"]:
+                # Format the rectangle as a polyline.
+                points = (get_rectangle_element_coords(element) * sf).astype(
+                    int
+                )
+
+            # Draw the points on the mask with 1.
+            element_mask = cv.drawContours(
+                element_mask, [points], -1, 1, cv.FILLED
+            )
+
+            if len(holes):
+                # Draw the holes on the mask with 0.
+                element_mask = cv.drawContours(
+                    element_mask, holes, -1, 0, cv.FILLED
+                )
+
+            # Specify the label of the elements on the thumbnail mask.
+            mask[element_mask == 1] = label2id[label]
+
+    # Return the thumbnail and the mask.
+    return thumbnail, mask
