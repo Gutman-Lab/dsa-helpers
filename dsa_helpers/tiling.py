@@ -11,7 +11,7 @@ import numpy as np
 from pathlib import Path
 from multiprocessing import Pool
 from tqdm import tqdm
-from . import imwrite
+from . import imwrite, imread
 import pandas as pd
 
 
@@ -338,3 +338,99 @@ def tile_image(
         df_data.append([save_fp, x, y, tile_size])
 
     return pd.DataFrame(df_data, columns=["fp", "x", "y", "tile_size"])
+
+
+def tile_image_with_mask(
+    img: np.ndarray | str,
+    mask: np.ndarray | str,
+    save_dir: str,
+    tile_size: int,
+    stride: int | None = None,
+    fill: tuple[int, int, int] = (255, 255, 255),
+    mask_pad_value: int = 0,
+    prepend_name: str = "",
+) -> pd.DataFrame:
+    """Tile an image and its corresponding mask.
+
+    Args:
+        img (np.ndarray): The image or filepath to tile.
+        mask (np.ndarray): The mask or filepath to mask.
+        save_dir (str): The directory to save the tiles. Images are
+            saved in a "images" subdirectory and masks in a "masks"
+            subdirectory.
+        tile_size (int): The size of the tiles.
+        stride (int, optional): The stride of the tiles. Defaults to
+            None which sets the stride to the tile size
+            (no overlap between tiles).
+        fill (tuple[int, int, int], optional): The fill value for the
+            tiles that go over the edge of image. Defaults to (255,
+            255, 255).
+        mask_pad_value (int, optional): The value to pad the mask with.
+            Defaults to 0.
+        prepend_name (str, optional): A string to prepend to the tile
+            filenames. Default to "". Naming of tiles is:
+            {prepend_name}x{x}y{y}.png.
+
+    Returns:
+        pandas.DataFrame: A pandas dataframe containing the filepath of
+            the image and mask and x, y coordinate.
+
+    """
+    if isinstance(img, str):
+        img = imread(img)
+
+    if isinstance(mask, str):
+        mask = imread(mask, grayscale=True)
+
+    h, w = img.shape[:2]
+
+    # Pad the mask to avoid tiles going over the image boundary.
+    mask = cv.copyMakeBorder(
+        mask.copy(),
+        0,
+        h + tile_size,
+        0,
+        w + tile_size,
+        cv.BORDER_CONSTANT,
+        value=mask_pad_value,
+    )
+
+    # Same for the image.
+    img = cv.copyMakeBorder(
+        img.copy(),
+        0,
+        h + tile_size,
+        0,
+        w + tile_size,
+        cv.BORDER_CONSTANT,
+        value=fill,
+    )
+
+    # Make subdirectories to save images to.
+    img_dir = Path(save_dir).joinpath("images")
+    mask_dir = Path(save_dir).joinpath("masks")
+    img_dir.mkdir(parents=True, exist_ok=True)
+    mask_dir.mkdir(exist_ok=True)
+
+    if stride is None:
+        stride = tile_size
+
+    xys = [(x, y) for x in range(0, w, stride) for y in range(0, h, stride)]
+
+    tile_data = []
+
+    for xy in xys:
+        x, y = xy
+
+        tile_img = img[y : y + tile_size, x : x + tile_size]
+        tile_img_fp = img_dir / f"{prepend_name}x{x}y{y}.png"
+
+        tile_mask = mask[y : y + tile_size, x : x + tile_size]
+        tile_mask_fp = mask_dir / f"{prepend_name}x{x}y{y}.png"
+
+        imwrite(tile_img_fp, tile_img)
+        imwrite(tile_mask_fp, tile_mask, grayscale=True)
+
+        tile_data.append([str(tile_img_fp), str(tile_mask_fp), x, y])
+
+    return pd.DataFrame(tile_data, columns=["fp", "mask_fp", "x", "y"])
