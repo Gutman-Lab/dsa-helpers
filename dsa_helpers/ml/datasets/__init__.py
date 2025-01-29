@@ -1,3 +1,4 @@
+# Shadow import.
 from .SegFormerSegmentationDataset import SegFormerSegmentationDataset
 
-__all__ = ["utils"]
+__all__ = []
