@@ -89,13 +89,14 @@ def label_mask_to_polygons(
 
         # Convert to shapely polygon objects.
         for data in polygons_dict.values():
-            polygon = Polygon(data["polygon"], holes=data["holes"])
+            if "polygon" in data:
+                polygon = Polygon(data["polygon"], holes=data["holes"])
 
-            # Shift the polygon by the offset.
-            polygon = translate(polygon, xoff=x_offset, yoff=y_offset)
+                # Shift the polygon by the offset.
+                polygon = translate(polygon, xoff=x_offset, yoff=y_offset)
 
-            # Include the polygon if it's greater than the minimum area.
-            if polygon.area >= min_area:
-                polygons.append([polygon, int(label)])
+                # Include the polygon if it's greater than the minimum area.
+                if polygon.area >= min_area:
+                    polygons.append([polygon, int(label)])
 
     return polygons
