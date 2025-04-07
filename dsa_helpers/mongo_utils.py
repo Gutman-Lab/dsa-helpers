@@ -1,4 +1,4 @@
-import pymongo
+import json
 from os import getenv
 from gridfs import GridFS
 import numpy as np
@@ -6,6 +6,42 @@ from io import BytesIO
 from bson.objectid import ObjectId
 from PIL import Image
 from typing import Union
+
+import pymongo
+from pymongo.database import Database
+
+
+def store_json_in_db(mongo_db, json_data: dict, _id: str | None = None) -> str:
+    """Store a dictionary as a JSON file in GridFS.
+
+    Args:
+        mongo_db: The MongoDB database.
+        json_data (dict): The dictionary to store.
+
+    Returns:
+        str: The ID of the stored JSON file.
+    """
+    fs = GridFS(mongo_db)
+
+    # Convert dictionary to JSON string
+    json_str = json.dumps(json_data)
+
+    # Store the JSON data in GridFS
+    if _id is not None:
+        file_id = fs.put(
+            json_str.encode("utf-8"),
+            encoding="utf-8",
+            content_type="application/json",
+            _id=ObjectId(_id),
+        )
+    else:
+        file_id = fs.put(
+            json_str.encode("utf-8"),
+            encoding="utf-8",
+            content_type="application/json",
+        )
+
+    return str(file_id)
 
 
 def get_mongo_client(
@@ -54,7 +90,9 @@ def get_mongo_client(
     if port is None:
         port = int(getenv("MONGO_HOST_PORT", 27017))
 
-    return pymongo.MongoClient(f"{protocol}://{username}:{password}@{host}:{port}")
+    return pymongo.MongoClient(
+        f"{protocol}://{username}:{password}@{host}:{port}"
+    )
 
 
 def chunks(lst: list, n=500):
@@ -96,7 +134,9 @@ def add_many_to_collection(
     operations = []
 
     for _id, item in items.items():
-        operations.append(pymongo.UpdateOne({"_id": _id}, {"$set": item}, upsert=True))
+        operations.append(
+            pymongo.UpdateOne({"_id": _id}, {"$set": item}, upsert=True)
+        )
 
     for chunk in chunks(operations):
         _ = mongo_collection.bulk_write(chunk)
@@ -164,3 +204,63 @@ def add_img_to_db(
     file_id = fs.put(byte_data)
 
     return file_id
+
+
+def store_json_in_gridfs(
+    mongo_db: Database, json_data: dict, _id: str | None = None
+) -> str:
+    """Store a dictionary as a JSON file in GridFS.
+
+    Args:
+        mongo_db (pymongo.database.Database): The MongoDB database.
+        json_data (dict): The dictionary to store.
+        _id (str, optional): The ID to use for the stored JSON file. If None,
+            a new ID will be generated.
+
+    Returns:
+        str: The ID of the stored JSON file.
+    """
+    fs = GridFS(mongo_db)
+
+    # Convert dictionary to JSON string
+    json_str = json.dumps(json_data)
+
+    # Store the JSON data in GridFS
+    if _id is not None:
+        file_id = fs.put(
+            json_str.encode("utf-8"),
+            encoding="utf-8",
+            content_type="application/json",
+            _id=ObjectId(_id),
+        )
+    else:
+        file_id = fs.put(
+            json_str.encode("utf-8"),
+            encoding="utf-8",
+            content_type="application/json",
+        )
+
+    return str(file_id)
+
+
+def get_json_from_gridfs(mongo_db: Database, json_id: str) -> dict:
+    """Retrieve a JSON dictionary from GridFS.
+
+    Args:
+        mongo_db (pymongo.database.Database): The MongoDB database.
+        json_id (str): The GridFS file ID.
+
+    Returns:
+        dict: The retrieved dictionary.
+
+    """
+    fs = GridFS(mongo_db)
+
+    grid_out = fs.get(ObjectId(json_id))
+
+    if grid_out:
+        # Read the JSON string and convert it back to a dictionary
+        json_str = grid_out.read().decode("utf-8")
+        return json.loads(json_str)
+
+    return None  # If not found
