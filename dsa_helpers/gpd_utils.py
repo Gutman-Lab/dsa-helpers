@@ -169,4 +169,7 @@ def remove_gdf_overlaps(
     # This could have created multiple polygons, explode them.
     gdf = gdf.explode(index_parts=False).reset_index(drop=True)
 
+    # Remove any rows whose geometry is empty.
+    gdf = gdf[gdf.geometry.notna()].reset_index(drop=True)
+
     return gdf
