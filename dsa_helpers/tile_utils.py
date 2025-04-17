@@ -5,7 +5,7 @@ This module contains functions used when working tiles.
 
 """
 from geopandas import GeoDataFrame
-from .utils import mask_to_shapely
+from .image_utils import label_mask_to_polygons
 
 
 def merge_tile_masks(
@@ -35,8 +35,8 @@ def merge_tile_masks(
 
         # Process the mask by converting it to polygons.
         polygons_and_labels.extend(
-            mask_to_shapely(
-                tile, x_offset=x, y_offset=y, background_label=background_label
+            label_mask_to_polygons(
+                tile, x_offset=x, y_offset=y, exclude_labels=background_label
             )
         )
 
