@@ -1,4 +1,18 @@
-# Functions using the girder client.
+"""Module for working with the girder client, or related to girder
+documents, such as annotation documents.
+
+Functions:
+- login: Authenticate a girder client with the given credentials or interactively
+- get_item_large_image_metadata: Get large image metadata for an item
+- get_thumbnail: Get the thumbnail image by a specific magnification or shape
+- get_region: Get image region from DSA
+- get_element_contours: Get the contours of an element, regardless of the type
+- get_roi_images: Get regions of interest (ROIs) as images from DSA annotations
+- post_annotation: Post a new annotation to the DSA
+- remove_overlapping_annotations: Remove overlapping regions from elements
+
+"""
+
 from girder_client import GirderClient, HttpError
 import pickle
 import numpy as np
@@ -6,7 +20,9 @@ import pandas as pd
 from pathlib import Path
 import cv2 as cv
 from copy import deepcopy
-from geopandas import GeoDataFrame
+import geopandas as gpd
+from shapely.geometry import Polygon
+from .gpd_utils import remove_gdf_overlaps
 
 
 def get_item_large_image_metadata(gc: GirderClient, item_id: str) -> dict:
@@ -497,7 +513,7 @@ def post_annotations_from_gdf(
     gc: GirderClient,
     item_id: str,
     doc_name: str,
-    gdf: GeoDataFrame,
+    gdf: gpd.GeoDataFrame,
     idx_config: dict,
     tolerance: float = 0.5,
     max_points: int = 1000,
@@ -668,3 +684,180 @@ def get_thumbnail_with_mask(
 
     # Return the thumbnail and the mask.
     return thumbnail, mask
+
+
+def remove_overlapping_annotations(
+    annotation: dict, group_order: list[str]
+) -> dict:
+    """Remove overlapping regions from elements.
+
+    annotation (dict): The annotation key from a DSA annotation
+        document.
+    group_order (list[str]): The order of groups to process. Groups
+        earlier in the list will take precedence over those later when
+        removing overlapping regions. Groups in the document that are
+        not in the list will be kept as is.
+
+    Returns:
+        dict: The modified annotation document.
+
+    """
+    # Check if the elements key is present.
+    if "elements" not in annotation:
+        print("No elements key found in annotation.")
+
+    elements = annotation.get("elements", [])
+
+    new_elements = []
+    elements_to_process = []
+
+    # Loop through the elements.
+    for element in elements:
+        # Pop the id key.
+        _ = element.pop("id", None)
+
+        # Check if group is in the group order.
+        if element.get("group") in group_order:
+            # Process the element.
+            if element.get("type") == "polyline":
+                points = element.pop("points")
+
+                # Convert the points to a x, y numpy array.
+                points = np.array(
+                    [[p[0], p[1]] for p in points], dtype=np.float32
+                )
+
+                # Add holes to the polygon if they exists.
+                if "holes" in element and len(element["holes"]):
+                    # Remove the holes key.
+                    holes = element.pop("holes")
+
+                    # Convert them to numpy array.
+                    holes = [
+                        np.array(
+                            [[p[0], p[1]] for p in hole], dtype=np.float32
+                        )
+                        for hole in holes
+                    ]
+                else:
+                    holes = None
+
+                # Add the points as a geometry object.
+                element["geometry"] = Polygon(points, holes=holes)
+
+                # Add the points to the elements to process.
+                elements_to_process.append(element)
+            elif element.get("type") == "rectangle":
+                # For ease of use, convert the rectangle to a polyline.
+                coords = get_rectangle_element_coords(element)
+                element["geometry"] = Polygon(coords)
+                element["type"] = "polyline"
+
+                # Remove the keys that are no longer needed.
+                _ = element.pop("rotation", None)
+                _ = element.pop("width", None)
+                _ = element.pop("height", None)
+                _ = element.pop("center", None)
+
+                # Add the points to the elements to process.
+                elements_to_process.append(element)
+            else:
+                # Keep the element as is.
+                new_elements.append(element)
+        else:
+            # Keep the element as is.
+            new_elements.append(element)
+
+    # Convert the elements to process into a GeoDataFrame.
+    if len(elements_to_process):
+        gdf = gpd.GeoDataFrame(elements_to_process)
+
+        # Map by the groups.
+        group_map = {group: i for i, group in enumerate(group_order)}
+
+        # Add the order column, set by the group map.
+        gdf["order"] = gdf["group"].map(group_map)
+
+        # Remove the overlapping polygons.
+        gdf = remove_gdf_overlaps(gdf, "order")
+
+        # Convert the GeoDataFrame back to a list of dictionaries.
+        elements_to_process = gdf.to_dict(orient="records")
+
+        # Add the elements back to the list.
+        for element in elements_to_process:
+            # Convert the geometry back to the original format.
+            del element["order"]
+            geometry = element.pop("geometry")
+
+            exterior_poly = list(geometry.exterior.coords)
+            interior_polys = [
+                list(interior.coords) for interior in geometry.interiors
+            ]
+
+            points = [[int(xy[0]), int(xy[1]), 0] for xy in exterior_poly]
+
+            if len(points) == 0:
+                continue
+
+            holes = []
+
+            for interior_poly in interior_polys:
+                hole = [[int(xy[0]), int(xy[1]), 0] for xy in interior_poly]
+                holes.append(hole)
+
+            element["points"] = points
+            element["holes"] = holes
+
+            new_elements.append(element)
+
+    annotation["elements"] = new_elements
+
+    # Return the annotation.
+    return annotation
+
+
+def post_annotation(gc: GirderClient, item_id: str, annotation: dict) -> dict:
+    """Post a new annotation to the DSA.
+
+    Args:
+        gc (girder_client.GirderClient): The authenticated girder
+            client.
+        item_id (str): The item id to post the annotation to.
+        annotation (dict): The annotation dictionary post, it should
+            include only the "name", "description", and "elements" keys.
+
+    Returns:
+        dict: The response from the DSA.
+
+    Raises:
+        ValueError: If the annotation dictionary does not include the
+            "name" or "elements" keys.
+        ValueError: If the annotation dictionary includes any keys other
+            than "name", "description", "attributes", "display", and
+            "elements".
+
+    """
+    if "name" not in annotation or "elements" not in annotation:
+        raise ValueError("Annotation must include 'name' and 'elements' keys.")
+
+    if "description" not in annotation:
+        annotation["description"] = ""
+
+    for k in annotation.keys():
+        if k not in [
+            "name",
+            "description",
+            "attributes",
+            "display",
+            "elements",
+        ]:
+            raise ValueError(
+                f'Annotation key "{k}" is not allowed. Only "name", "description", "attributes", "display", and "elements" are allowed.'
+            )
+
+    return gc.post(
+        "/annotation",
+        parameters={"itemId": item_id},
+        json=annotation,
+    )
