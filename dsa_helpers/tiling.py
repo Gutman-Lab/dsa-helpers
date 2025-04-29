@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Functions for tiling images.
 
-This module contains functions used to tile large images, usually for 
+This module contains functions used to tile large images, usually for
 use in developing deep learning models.
 
 """
@@ -29,12 +29,20 @@ def _proccess_tile_with_masks_from_dsa_annotations(
     mask_dir,
     background_idx,
     edge_thr,
+    ignore_existing,
 ):
     # Calculate the x and y in tile magnification.
     x_mag = int(x * sf)
     y_mag = int(y * sf)
 
+    # Format the filepath to save the tile.
     fn = f"{prepend_name}x{x_mag}y{y_mag}.png"
+    img_fp = img_dir / fn
+    mask_fp = mask_dir / fn
+
+    # Ignore existing tiles.
+    if ignore_existing and img_fp.is_file() and mask_fp.is_file():
+        return str(img_fp), x_mag, y_mag
 
     # Get the tile.
     tile_img = ts.getRegion(
@@ -67,7 +75,7 @@ def _proccess_tile_with_masks_from_dsa_annotations(
         )
 
     # Create a blank tile mask.
-    tile_mask = np.zeros(tile_img.shape[:2], dtype=np.uint8)
+    tile_mask = np.zeros((tile_size, tile_size), dtype=np.uint8)
 
     # Loop through contours to draw on tile mask.
     for idx, contour_dict in contours.items():
@@ -98,9 +106,9 @@ def _proccess_tile_with_masks_from_dsa_annotations(
         tile_mask[label_mask == 1] = idx
 
     # Save the image and mask.
-    img_fp = img_dir / fn
+
     imwrite(img_fp, tile_img)
-    imwrite(mask_dir / fn, tile_mask, grayscale=True)
+    imwrite(mask_fp, tile_mask, grayscale=True)
 
     return str(img_fp), x_mag, y_mag
 
@@ -117,6 +125,7 @@ def tile_wsi_with_masks_from_dsa_annotations(
     nproc: int = 1,
     background_idx: int = 0,
     edge_thr: float = 0.25,
+    ignore_existing: bool = False,
 ) -> list[str]:
     """Tile a WSI with semantic segmentation label masks created from
     DSA annotations. DSA annotation class labels for elements are
@@ -146,6 +155,9 @@ def tile_wsi_with_masks_from_dsa_annotations(
             the tile is padded background then it is ignored. If the
             amount of tile in WSI / amount of tile padded is less than
             this threshold, the tile is ignored. Defaults to 0.25.
+        ignore_existing (bool, optional): Whether to ignore existing
+            tiles. If False, tiles will not be created if they already
+            exist. Defaults to False.
 
     Returns:
         list[str]: A list of tuples: (tile file path, x, y coordinates
@@ -256,6 +268,7 @@ def tile_wsi_with_masks_from_dsa_annotations(
                     mask_dir,
                     background_idx,
                     edge_thr,
+                    ignore_existing,
                 ),
             )
             for xy in xys

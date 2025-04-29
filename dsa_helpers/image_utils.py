@@ -100,3 +100,31 @@ def label_mask_to_polygons(
                     polygons.append([polygon, int(label)])
 
     return polygons
+
+
+def convert_label_mask_to_rgb(
+    mask: np.ndarray, int2rgb: dict, alpha: bool = False
+) -> np.ndarray:
+    """
+    Convert a label mask to an RGB mask.
+
+    Args:
+        mask: Label mask to convert.
+        int2rgb: Dictionary mapping integer labels to RGB colors. If
+            passing alpha as True, then pass RGBA colors.
+        alpha: Whether to include the alpha channel in the RGB mask.
+
+    Returns:
+        (np.ndarray): RGB(A) mask.
+
+    """
+    # Create a new RGB mask of the same size as the label mask.
+    rgb_mask = np.zeros(
+        (mask.shape[0], mask.shape[1], 4 if alpha else 3), dtype=np.uint8
+    )
+
+    # Loop through the label mask.
+    for label, rgb in int2rgb.items():
+        rgb_mask[mask == label] = rgb
+
+    return rgb_mask
