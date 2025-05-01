@@ -779,6 +779,16 @@ def remove_overlapping_annotations(
     if len(elements_to_process):
         gdf = gpd.GeoDataFrame(elements_to_process)
 
+        if max_coords is not None:
+            # Create a bounding box polygon.
+            bbox = box(0, 0, max_coords[0], max_coords[1])
+
+            # Clip the polygons to the bounding box.
+            gdf = gdf.clip(bbox)
+
+            # This could have created multiple polygons, explode them.
+            gdf = gdf.explode(index_parts=False).reset_index(drop=True)
+
         # Map by the groups.
         group_map = {group: i for i, group in enumerate(group_order)}
 
@@ -787,13 +797,6 @@ def remove_overlapping_annotations(
 
         # Remove the overlapping polygons.
         gdf = remove_gdf_overlaps(gdf, "order")
-
-        if max_coords is not None:
-            # Create a bounding box polygon.
-            bbox = box(0, 0, max_coords[0], max_coords[1])
-
-            # Clip the polygons to the bounding box.
-            gdf = gdf.clip(bbox)
 
         # Convert the GeoDataFrame back to a list of dictionaries.
         elements_to_process = gdf.to_dict(orient="records")
