@@ -21,7 +21,7 @@ from pathlib import Path
 import cv2 as cv
 from copy import deepcopy
 import geopandas as gpd
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, box
 from .gpd_utils import remove_gdf_overlaps
 
 
@@ -687,7 +687,9 @@ def get_thumbnail_with_mask(
 
 
 def remove_overlapping_annotations(
-    annotation: dict, group_order: list[str]
+    annotation: dict,
+    group_order: list[str],
+    max_coords: tuple[int, int] | None = None,
 ) -> dict:
     """Remove overlapping regions from elements.
 
@@ -697,6 +699,11 @@ def remove_overlapping_annotations(
         earlier in the list will take precedence over those later when
         removing overlapping regions. Groups in the document that are
         not in the list will be kept as is.
+    max_coords (tuple[int, int], optional): The maximum coordinates in
+        the width and height dimension. If annotation element
+        coordinates are larger than this, they will be clipped to the
+        maximum coordinate. If None is passed then no clipping will be
+        performed. Defaults to None.
 
     Returns:
         dict: The modified annotation document.
@@ -780,6 +787,13 @@ def remove_overlapping_annotations(
 
         # Remove the overlapping polygons.
         gdf = remove_gdf_overlaps(gdf, "order")
+
+        if max_coords is not None:
+            # Create a bounding box polygon.
+            bbox = box(0, 0, max_coords[0], max_coords[1])
+
+            # Clip the polygons to the bounding box.
+            gdf = gdf.clip(bbox)
 
         # Convert the GeoDataFrame back to a list of dictionaries.
         elements_to_process = gdf.to_dict(orient="records")
