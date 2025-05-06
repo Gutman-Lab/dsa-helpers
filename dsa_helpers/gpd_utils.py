@@ -201,6 +201,8 @@ def draw_gdf_on_array(gdf, shape, id_column="idx", default_value: int = 0):
         numpy.ndarray: The array with the polygons drawn on it.
 
     """
+    # Create the array.
+    array = np.ones(shape, dtype=np.uint8) * default_value
 
     # Draw each polygon with its corresponding label
     for _, row in gdf.iterrows():
