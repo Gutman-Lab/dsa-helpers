@@ -1,11 +1,19 @@
 """
 Utility functions for working with GeoPandas.
 
+Functions:
+- count_polygon_points: Count the total number of points in a Shapely polygon.
+- total_points_in_gdf: Calculate the total number of points in all polygons in a GeoDataFrame.
+- plot_gdf: Create a figure from a geopandas dataframe.
+- remove_gdf_overlaps: Remove overlaps from a GeoDataFrame.
+- draw_gdf_on_array: Draw a GeoDataFrame on an array.
+
 """
 
 import geopandas as gpd
 from shapely.geometry import Polygon
-
+from rasterio.features import rasterize
+import numpy as np
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 
@@ -51,19 +59,24 @@ def total_points_in_gdf(gdf: gpd.GeoDataFrame) -> int:
 def plot_gdf(
     gdf: gpd.GeoDataFrame,
     figsize: int | tuple[int, int] | None = None,
+    label_column: str = "group",
     label2color: dict | None = None,
-):
-    """Plot a geopandas dataframe.
+) -> tuple[plt.Figure, plt.Axes]:
+    """Create figure from a geopandas dataframe.
 
     Args:
         gdf (geopandas.GeoDataFrame): A GeoDataFrame containing
             polygons. Must have a 'label' column.
         figsize (int | tuple[int, int] | None): The size of the figure.
             If None, the figure size will be (5, 5).
+        label_column (str): The column name of the label.
         label2color (dict | None): A dictionary mapping labels to
             colors. If None then a legend will not be included and the
             colors will be random. Colors should be an accepted
             matplotlib color.
+
+    Returns:
+        tuple[plt.Figure, plt.Axes]: The figure and axes objects.
 
     """
     if figsize is None:
@@ -76,16 +89,14 @@ def plot_gdf(
     # Blow up any multi-polygons.
     gdf = gdf.explode(index_parts=False).reset_index(drop=True)
 
-    total_points = total_points_in_gdf(gdf)
-
     if label2color is not None:
-        gdf["color"] = gdf["label"].map(label2color)
+        gdf["color"] = gdf[label_column].map(label2color)
 
         # Remove rows where color is nan.
         gdf = gdf.dropna(subset=["color"])
 
-    # # Create the plot
-    ax = plt.subplots(figsize=figsize)[1]
+    # Create the plot
+    fig, ax = plt.subplots(figsize=figsize)
     gdf.plot(color=gdf["color"], ax=ax)
 
     if label2color is not None:
@@ -105,8 +116,8 @@ def plot_gdf(
             ),  # x > 1 pushes it to the right, y = 1 keeps it top-aligned
             borderaxespad=0,
         )
-    plt.title(f"Total points: {total_points:,}")
-    plt.show()
+
+    return fig, ax
 
 
 def remove_gdf_overlaps(
@@ -170,3 +181,43 @@ def remove_gdf_overlaps(
     gdf = gdf.explode(index_parts=False).reset_index(drop=True)
 
     return gdf
+
+
+def draw_gdf_on_array(gdf, shape, id_column="idx", default_value: int = 0):
+    """Use the polygons in a geopandas dataframe to draw on a passed
+    numpy array.
+
+    Args:
+        gdf (geopandas.GeoDataFrame): The GeoDataFrame to draw on the
+            array.
+        shape (tuple): Height and width of the array to draw on.
+        id_column (str): The column on the dataframe to use for the
+            value of each polygon drawn. The values in this column
+            must be integers.
+        default_value (int): The default value of the array, this will
+            the values returned for pixels that are not drawn on.
+
+    Returns:
+        numpy.ndarray: The array with the polygons drawn on it.
+
+    """
+    # Create the array.
+    array = np.ones(shape, dtype=np.uint8) * default_value
+
+    # Draw each polygon with its corresponding label
+    for _, row in gdf.iterrows():
+        # Create a list of (geometry, value) pairs
+        shapes = [(row.geometry, row[id_column])]
+
+        # Rasterize the shapes
+        burned = rasterize(
+            shapes=shapes,
+            out_shape=shape,
+            fill=default_value,
+            default_value=default_value,
+        )
+
+        # Update the array where the polygon was burned
+        array = np.where(burned > 0, burned, array)
+
+    return array

@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Functions for tiling images.
 
-This module contains functions used to tile large images, usually for
-use in developing deep learning models.
+Functions:
+- tile_wsi_with_masks_from_dsa_annotations: Tile a WSI with semantic segmentation label masks created from DSA annotations.
+- tile_image: Tile an image into smaller images.
+- tile_image_with_mask: Tile an image and its corresponding mask.
 
 """
 import large_image
@@ -10,12 +12,16 @@ import cv2 as cv
 import numpy as np
 from pathlib import Path
 from multiprocessing import Pool
-from tqdm import tqdm
-from . import imwrite, imread
 import pandas as pd
+from shapely.affinity import scale, translate
+import geopandas as gpd
+
+from . import imwrite, imread
+from .gpd_utils import draw_gdf_on_array
 
 
 def _proccess_tile_with_masks_from_dsa_annotations(
+    gdf,
     ts,
     prepend_name,
     x,
@@ -23,15 +29,19 @@ def _proccess_tile_with_masks_from_dsa_annotations(
     scan_tile_size,
     tile_size,
     mag,
-    contours,
     sf,
     img_dir,
     mask_dir,
-    background_idx,
+    background_value,
+    background_index,
     edge_thr,
     ignore_existing,
+    ignore_labels,
+    ignore_index,
+    ignore_value,
 ):
-    # Calculate the x and y in tile magnification.
+    """Processing tiles with masks, used in multiprocessing only."""
+    # Calcualte the x and y at magnification desired.
     x_mag = int(x * sf)
     y_mag = int(y * sf)
 
@@ -42,10 +52,10 @@ def _proccess_tile_with_masks_from_dsa_annotations(
 
     # Ignore existing tiles.
     if ignore_existing and img_fp.is_file() and mask_fp.is_file():
-        return str(img_fp), x_mag, y_mag
+        return str(img_fp), str(mask_fp), x_mag, y_mag
 
     # Get the tile.
-    tile_img = ts.getRegion(
+    img = ts.getRegion(
         region={
             "left": x,
             "top": y,
@@ -54,78 +64,71 @@ def _proccess_tile_with_masks_from_dsa_annotations(
         },
         format=large_image.constants.TILE_FORMAT_NUMPY,
         scale={"magnification": mag},
-    )[0][:, :, :3]
+    )[0][:, :, :3].copy()
 
     # Check if the tile area is below threshold.
-    h, w = tile_img.shape[:2]
+    h, w = img.shape[:2]
 
     if h * w / (tile_size * tile_size) < edge_thr:
         return None
 
     if (h, w) != (tile_size, tile_size):
         # Pad the image with zeroes to make it the desired size.
-        tile_img = cv.copyMakeBorder(
-            tile_img,
+        img = cv.copyMakeBorder(
+            img,
             0,
-            tile_size - tile_img.shape[0],
+            tile_size - h,
             0,
-            tile_size - tile_img.shape[1],
+            tile_size - w,
             cv.BORDER_CONSTANT,
-            value=background_idx,
+            value=background_value,
         )
 
-    # Create a blank tile mask.
-    tile_mask = np.zeros((tile_size, tile_size), dtype=np.uint8)
+        h, w = img.shape[:2]
 
-    # Loop through contours to draw on tile mask.
-    for idx, contour_dict in contours.items():
-        # Create a mask for the specific label.
-        label_mask = np.zeros(tile_mask.shape, dtype=np.uint8)
+    # Create a copy of the geodataframe for this tile.
+    tile_gdf = gdf.copy()
 
-        points = contour_dict["points"].copy()
-        holes = contour_dict["holes"].copy()
+    # Translate the coordinates so 0, 0 is the top left corner of the tile.
+    tile_gdf["geometry"] = tile_gdf["geometry"].apply(
+        lambda geom: translate(geom, xoff=-x_mag, yoff=-y_mag)
+    )
 
-        # For points and hole:
-        # (1) Shift by top left of the current tile.
-        # (2) Scale by be desired magnification.
-        points = [((point - [x, y]) * sf).astype(int) for point in points]
+    # Draw the dataframe on the tile mask.
+    mask = draw_gdf_on_array(
+        tile_gdf, (h, w), default_value=background_index
+    ).copy()
 
-        corrected_holes = []
+    if ignore_labels is not None:
+        img[np.isin(mask, ignore_labels)] = ignore_value
+        mask[np.isin(mask, ignore_labels)] = ignore_index
 
-        for hole in holes:
-            if len(hole):
-                corrected_holes.append(((hole - [x, y]) * sf).astype(int))
+    # Save the tile image and mask.
+    imwrite(img_fp, img)
+    imwrite(mask_fp, mask.astype(np.uint8), grayscale=True)
 
-        # Use points to draw contours as positive.
-        label_mask = cv.drawContours(label_mask, points, -1, 1, cv.FILLED)
-
-        # Draw in the holes as background class zero.
-        label_mask = cv.drawContours(label_mask, holes, -1, 0, cv.FILLED)
-
-        # Apply the label to tile mask where label mask is positive.
-        tile_mask[label_mask == 1] = idx
-
-    # Save the image and mask.
-
-    imwrite(img_fp, tile_img)
-    imwrite(mask_fp, tile_mask, grayscale=True)
-
-    return str(img_fp), x_mag, y_mag
+    return str(img_fp), str(mask_fp), x_mag, y_mag
 
 
 def tile_wsi_with_masks_from_dsa_annotations(
     wsi_fp: str,
-    annotation_docs: list[dict],
-    label2idx: dict,
+    geojson_ann_doc: dict,
+    label2id: dict,
     save_dir: str,
     tile_size: int,
+    label_col: str = "group",
     stride: int | None = None,
     mag: float | None = None,
     prepend_name: str = "",
     nproc: int = 1,
-    background_idx: int = 0,
+    background_value: tuple[int, int, int] | int = (255, 255, 255),
+    background_index: int = 0,
     edge_thr: float = 0.25,
     ignore_existing: bool = False,
+    ignore_labels: str | list[str] | None = None,
+    ignore_index: int = 255,
+    ignore_value: tuple[int, int, int] = (255, 255, 255),
+    notebook_tqdm: bool = False,
 ) -> list[str]:
     """Tile a WSI with semantic segmentation label masks created from
     DSA annotations. DSA annotation class labels for elements are
@@ -134,11 +137,13 @@ def tile_wsi_with_masks_from_dsa_annotations(
 
     Args:
         wsi_fp (str): file path to WSI.
-        annotation_docs (list[dict]): list of annotation documents.
-        label2idx (dict): mapping of label names to integer indices.
+        geojson_ann_doc dict: DSA annotation document in geojson format.
+        label2id (dict): mapping of label names to integer indices.
         save_dir (str): directory to save the tiled images.
         tile_size (int): size of the tile images at desired
             magnificaiton.
+        label_col (str, optional): Column name for polygon labels.
+            Options are "group" or "label". Defaults to "group".
         stride (int | None, optional): stride of the tiling. If None,
             the stride will be the same as the tile size. Defaults to
             None.
@@ -149,8 +154,12 @@ def tile_wsi_with_masks_from_dsa_annotations(
             images and masks. Defaults to "".
         nproc (int, optional): number of processes to use for tiling.
             Defaults to 1.
-        background_idx (int, optional): index of the background class.
-            Will be used when padding edges of WSI. Defaults to 0.
+        background_value (int, optional): Value to use for the
+            background in the images, used when padding tiles at the
+            edge of WSI. Defaults to (255, 255, 255). If set to a single
+            value it will be used for all channels.
+        background_index (int, optional): Index of the background class.
+            Defaults to 0.
         edge_thr (float, optional): For tiles at the edge, if most of
             the tile is padded background then it is ignored. If the
             amount of tile in WSI / amount of tile padded is less than
@@ -158,81 +167,83 @@ def tile_wsi_with_masks_from_dsa_annotations(
         ignore_existing (bool, optional): Whether to ignore existing
             tiles. If False, tiles will not be created if they already
             exist. Defaults to False.
+        ignore_labels (str | list[str] | None, optional): Labels to
+            ignore. Defaults to None.
+        ignore_index (int, optional): Index of the ignore class. Defaults
+            to 255.
+        ignore_value (tuple[int, int, int], optional): Value to use for
+            the ignore class in the images. Defaults to (255, 255, 255).
+            If set to a single value it will be used for all channels.
+        notebook_tqdm (bool, optional): Whether to use tqdm in a
+            notebook. Defaults to False.
 
     Returns:
         list[str]: A list of tuples: (tile file path, x, y coordinates
             of tile at magnification desired).
 
     """
-    # Get the tile source of WSI.
-    ts = large_image.getTileSource(str(wsi_fp))
+    if notebook_tqdm:
+        from tqdm.notebook import tqdm
+    else:
+        from tqdm import tqdm
 
-    # Get the metadata of the WSI.
-    metadata = ts.getMetadata()
+    if isinstance(ignore_labels, str):
+        ignore_labels = [ignore_labels]
 
-    # Calculate variables based on the desired magnification.
-    wsi_mag = metadata["magnification"]
+    if ignore_labels is not None:
+        ignore_labels = [label2id[label] for label in ignore_labels]
 
+    # Read the tile source.
+    ts = large_image.getTileSource(wsi_fp)
+
+    # Get the magnification at scan.
+    ts_metadata = ts.getMetadata()
+    scan_mag = ts_metadata["magnification"]
+
+    # Set the stride.
     if stride is None:
         stride = tile_size
 
-    # Calculate the tile size at full resolution (1 if mag is None or the same as scan mag).
+    # Get tile size & stride at scan magnification.
+    # Also, determine scaling factor to go from scan mag to desired mag.
     if mag is None:
         scan_tile_size = tile_size
         scan_stride = stride
-        mag = wsi_mag
-        sf = 1
+        mag = scan_mag
+        scan_to_mag_sf = 1
     else:
-        sf = mag / wsi_mag  # scan mag -> desired mag
-        scan_tile_size = int(tile_size / sf)
-        scan_stride = int(stride / sf)
+        scan_to_mag_sf = mag / scan_mag  # scan mag -> desired mag
+        scan_tile_size = int(tile_size / scan_to_mag_sf)
+        scan_stride = int(stride / scan_to_mag_sf)
 
-    # Format annotation documents for drawing on tile masks.
-    contours = {idx: {"points": [], "holes": []} for idx in label2idx.values()}
+    gdf = gpd.GeoDataFrame.from_features(geojson_ann_doc.get("features", []))
 
-    for ann_doc in annotation_docs:
-        # Loop through the elements of the annotation document.
-        elements = ann_doc.get("annotation", {}).get("elements", [])
+    if label_col == "label":
+        # Convert the label column, which is a dictionary, set it to its 'value' key.
+        gdf["label"] = gdf["label"].apply(lambda x: x.get("value", ""))
 
-        for element in elements:
-            # Check if element has a label.
-            label = element.get("label", {}).get("value")
+    # Filter to polygons in label2id.
+    gdf = gdf[gdf[label_col].isin(label2id.keys())]
 
-            if label not in label2idx:
-                # Skip this element if it is not in the label2idx mapping.
-                continue
+    # Remove rows with geometry is not a Polygon.
+    gdf = gdf[gdf["geometry"].type == "Polygon"]
 
-            idx = label2idx[label]
+    # Scale the coordinates to mag.
+    gdf["geometry"] = gdf["geometry"].apply(
+        lambda geom: scale(
+            geom, xfact=scan_to_mag_sf, yfact=scan_to_mag_sf, origin=(0, 0)
+        )
+    )
 
-            element_type = element["type"]
+    # Add and idx column, which is the map of the group to the label2id.
+    gdf["idx"] = gdf[label_col].map(label2id)
 
-            if element_type == "polyline":
-                points = element.get("points", [])
-
-                if len(points):
-                    points = np.array(points, dtype=int)[:, :2]
-                    contours[idx]["points"].append(points)
-
-                holes = element.get("holes", [])
-
-                if len(holes):
-                    for hole in holes:
-                        # Scale by the factor.
-                        hole = np.array(hole, dtype=int)[:, :2]
-                        contours[idx]["holes"].append(hole)
-
-            elif element_type == "rectangle":
-                # Convert the rectangle coordinates to polygon ones.
-                x1, y1 = element["center"][:2]
-                x2 = x1 + element["width"]
-                y2 = y1 + element["height"]
-
-                points = np.array(
-                    [[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=int
-                )
-
-                # Scale by the factor.
-                contours[idx]["points"].append(points)
+    # Get the top left corner of every tile in the WSI, at scan mag.
+    xys = [
+        (x, y)
+        for x in range(0, ts_metadata["sizeX"], scan_stride)
+        for y in range(0, ts_metadata["sizeY"], scan_stride)
+    ]
 
     # Create directory to save tile images and masks.
     save_dir = Path(save_dir)
@@ -241,20 +252,12 @@ def tile_wsi_with_masks_from_dsa_annotations(
     img_dir.mkdir(parents=True, exist_ok=True)
     mask_dir.mkdir(exist_ok=True)
 
-    # Get a list of x,y coordinates for the tile top left corners.
-    wsi_w, wsi_h = metadata["sizeX"], metadata["sizeY"]
-
-    xys = [
-        (x, y)
-        for x in range(0, wsi_w, scan_stride)
-        for y in range(0, wsi_h, scan_stride)
-    ]
-
     with Pool(nproc) as pool:
         jobs = [
             pool.apply_async(
                 _proccess_tile_with_masks_from_dsa_annotations,
                 (
+                    gdf,
                     ts,
                     prepend_name,
                     xy[0],
@@ -262,13 +265,16 @@ def tile_wsi_with_masks_from_dsa_annotations(
                     scan_tile_size,
                     tile_size,
                     mag,
-                    contours,
-                    sf,
+                    scan_to_mag_sf,
                     img_dir,
                     mask_dir,
-                    background_idx,
+                    background_value,
+                    background_index,
                     edge_thr,
                     ignore_existing,
+                    ignore_labels,
+                    ignore_index,
+                    ignore_value,
                 ),
             )
             for xy in xys
@@ -282,7 +288,7 @@ def tile_wsi_with_masks_from_dsa_annotations(
             if out is not None:
                 tile_info.append(job.get())
 
-        return tile_info
+    return tile_info
 
 
 def tile_image(
