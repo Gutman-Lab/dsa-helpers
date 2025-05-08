@@ -30,4 +30,7 @@ class SegFormerSegmentationDataset(Dataset):
         mask_path = self.mask_files[idx]
 
         # Return image & mask as PIL images in a dictionary.
-        return {"pixel_values": Image.open(image_path), "label": Image.open(mask_path)}
+        return {
+            "pixel_values": Image.open(image_path),
+            "label": Image.open(mask_path),
+        }

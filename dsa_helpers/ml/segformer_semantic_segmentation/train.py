@@ -41,7 +41,7 @@ def train_segformer_semantic_segmentation_model(
     Args:
         save_dir (str): Directory where model checkpoint directory will
             be saved to.
-        train_data (pd.DataFrame | str): Train data, should be a pandas
+        train_csv_fp (str): Train data, should be a pandas
             dataframe or a path to a csv file containing the train data.
             Must have the "fp" and "mask_fp" columns, which are the
             filepaths to the images and masks, respectively.
@@ -71,6 +71,7 @@ def train_segformer_semantic_segmentation_model(
             will be used. Defaults to None. Note that there is a bug
             that this value must be kept short otherwise a cuda memory
             error will occur.
+
         random_state (int, optional): Random state for the validation
             split. Defaults to 42.
         tile_size (int, optional): Size of the tiles to use for the model.
@@ -240,12 +241,10 @@ def train_segformer_semantic_segmentation_model(
     # For each of the datasets provided, get the metrics.
     model = trainer.model
 
-    dataset = create_segformer_segmentation_dataset(
-        train_data, transforms=val_transforms
-    )
+    print("Calculating train metrics...")
     results["train"]["metrics"] = per_class_dice_on_dataset(
         model,
-        dataset,
+        train_data,
         label2id,
         batch_size=batch_size,
         device=device,
@@ -253,12 +252,10 @@ def train_segformer_semantic_segmentation_model(
         tqdm_notebook=tqdm_notebook,
     )
 
-    dataset = create_segformer_segmentation_dataset(
-        val_data, transforms=val_transforms
-    )
+    print("Calculating val metrics...")
     results["val"]["metrics"] = per_class_dice_on_dataset(
         model,
-        dataset,
+        val_data,
         label2id,
         batch_size=batch_size,
         device=device,
@@ -267,14 +264,12 @@ def train_segformer_semantic_segmentation_model(
     )
 
     if test_data is not None:
+        print("Calculating test metrics...")
         results["test"] = {}
 
-        dataset = create_segformer_segmentation_dataset(
-            test_data, transforms=val_transforms
-        )
         results["test"]["metrics"] = per_class_dice_on_dataset(
             model,
-            dataset,
+            test_data,
             label2id,
             batch_size=batch_size,
             device=device,

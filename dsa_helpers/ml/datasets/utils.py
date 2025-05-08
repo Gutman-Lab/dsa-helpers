@@ -33,7 +33,9 @@ def create_segformer_segmentation_dataset(
 
     dataset = Dataset.from_generator(
         generator=lambda: dataset_generator(dataset),
-        features=Features({"pixel_values": Image(), "label": Image()}),  # Example shape
+        features=Features(
+            {"pixel_values": Image(), "label": Image()}
+        ),  # Example shape
     )
 
     if transforms is not None:
