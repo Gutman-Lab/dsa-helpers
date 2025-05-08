@@ -10,11 +10,11 @@ Functions:
 - get_roi_images: Get regions of interest (ROIs) as images from DSA annotations
 - post_annotation: Post a new annotation to the DSA
 - remove_overlapping_annotations: Remove overlapping regions from elements
-
+- upload_dir_to_dsa: Upload a local directory to a DSA item
 """
 
 from girder_client import GirderClient, HttpError
-import pickle
+import pickle, shutil, tempfile
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -878,3 +878,29 @@ def post_annotation(gc: GirderClient, item_id: str, annotation: dict) -> dict:
         parameters={"itemId": item_id},
         json=annotation,
     )
+
+
+def upload_dir_to_dsa(
+    gc: GirderClient,
+    checkpoint_dir: str,
+    item_id: str,
+):
+    """Upload a local directory to a DSA item.
+
+    Args:
+        gc (girder_client.GirderClient): The girder client.
+        checkpoint_dir (str): The path to the local directory to upload.
+        item_id (str): The ID of the DSA item to upload the directory to.
+
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir = Path(temp_dir)
+
+        # Zip the directory.
+        shutil.make_archive(temp_dir / "checkpoint", "zip", checkpoint_dir)
+
+        # Upload the zip file to the DSA item.
+        _ = gc.uploadFileToItem(
+            item_id,
+            str(temp_dir / "checkpoint.zip"),
+        )
