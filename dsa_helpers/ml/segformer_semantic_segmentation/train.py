@@ -10,7 +10,7 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from .datasets import create_segformer_segmentation_dataset
+from .utils import create_segformer_segmentation_dataset
 from .transforms import train_transforms, val_transforms
 from .evaluate import per_class_dice_on_dataset
 from ..callbacks import MetricsLoggerCallback
@@ -128,14 +128,15 @@ def train_segformer_semantic_segmentation_model(
         train_data, transforms=train_transforms
     )
 
-    val_dataset = create_segformer_segmentation_dataset(
-        (
-            val_data
-            if max_val_size is None
-            else val_data.sample(n=max_val_size, random_state=random_state)
-        ),
-        transforms=val_transforms,
-    )
+    if val_data is not None and max_val_size < len(val_data):
+        val_dataset = create_segformer_segmentation_dataset(
+            val_data.sample(n=max_val_size, random_state=random_state),
+            transforms=val_transforms,
+        )
+    else:
+        val_dataset = create_segformer_segmentation_dataset(
+            val_data, transforms=val_transforms
+        )
 
     def compute_metrics(eval_pred):
         """Function for computing DICE coefficient metrics for each
@@ -183,11 +184,11 @@ def train_segformer_semantic_segmentation_model(
             denominator_value = denominator[label]
 
             if denominator_value:
-                metrics[label] = float(
+                metrics[f"{label}_dice"] = float(
                     2 * intersection[label] / denominator_value
                 )
             else:
-                metrics[label] = 1
+                metrics[f"{label}_dice"] = 1
 
         # Add the mean Dice.
         metrics["mean_dice"] = float(np.mean(list(metrics.values())))

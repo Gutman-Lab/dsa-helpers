@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 from .transforms import val_transforms
-from .datasets import create_segformer_segmentation_dataset
+from .utils import create_segformer_segmentation_dataset
 
 
 def per_class_dice_on_dataset(
