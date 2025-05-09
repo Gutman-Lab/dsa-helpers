@@ -2,6 +2,7 @@
 import pandas as pd
 from .SegFormerSegmentationDataset import SegFormerSegmentationDataset
 from datasets import Dataset, Features, Image
+from colorama import Style, Fore
 
 
 def dataset_generator(dataset):
@@ -13,7 +14,10 @@ def dataset_generator(dataset):
 def create_segformer_segmentation_dataset(
     df: pd.DataFrame | str, low_memory: bool = True, transforms=None
 ):
-    """Create a SegFormer segmentation dataset from a DataFrame.
+    """DEPRECATED: see
+    dsa_helpers.ml.segformer_semantic_segmentation.datasets.create_segformer_segmentation_dataset
+
+    Create a SegFormer segmentation dataset from a DataFrame.
 
     Args:
         df (pd.DataFrame | str): A pandas DataFrame with columns "fp" and "mask_fp" or a
@@ -26,6 +30,11 @@ def create_segformer_segmentation_dataset(
         A Dataset object to be used for HuggingFaces SegFormer model training.
 
     """
+    print(Fore.RED)
+    print(
+        "This is deprecated, please import from dsa_helpers.ml.segformer_semantic_segmentation.datasets"
+    )
+    print(Style.RESET_ALL)
     if isinstance(df, str):
         df = pd.read_csv(df, low_memory=low_memory)
 

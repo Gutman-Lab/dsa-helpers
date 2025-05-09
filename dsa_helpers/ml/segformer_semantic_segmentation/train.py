@@ -10,13 +10,10 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from ..datasets.utils import create_segformer_segmentation_dataset
-from ..transforms.segformer_transforms import (
-    train_transforms,
-    val_transforms,
-)
+from .datasets import create_segformer_segmentation_dataset
+from .transforms import train_transforms, val_transforms
+from .evaluate import per_class_dice_on_dataset
 from ..callbacks import MetricsLoggerCallback
-from ..evaluate import per_class_dice_on_dataset
 
 
 def train_segformer_semantic_segmentation_model(
