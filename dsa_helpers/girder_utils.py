@@ -9,8 +9,10 @@ Functions:
 - get_element_contours: Get the contours of an element, regardless of the type
 - get_roi_images: Get regions of interest (ROIs) as images from DSA annotations
 - post_annotation: Post a new annotation to the DSA
+- post_annotations_from_gdf: Post annotations from a GeoDataFrame
 - remove_overlapping_annotations: Remove overlapping regions from elements
 - upload_dir_to_dsa: Upload a local directory to a DSA item
+
 """
 
 from girder_client import GirderClient, HttpError
@@ -21,7 +23,7 @@ from pathlib import Path
 import cv2 as cv
 from copy import deepcopy
 import geopandas as gpd
-from shapely.geometry import Polygon, box
+from shapely.geometry import Polygon, box, LineString
 from .gpd_utils import remove_gdf_overlaps
 
 
@@ -515,8 +517,6 @@ def post_annotations_from_gdf(
     doc_name: str,
     gdf: gpd.GeoDataFrame,
     idx_config: dict,
-    tolerance: float = 0.5,
-    max_points: int = 1000,
 ) -> dict:
     """Post annotations from a GeoDataFrame to the DSA.
 
@@ -528,10 +528,6 @@ def post_annotations_from_gdf(
         idx_config (dict): For each label in the GeoDataFrame, the configuration
             for the DSA annotation. Include "label", "fillColor", "lineColor", and
             "group".
-        tolerance (float, optional): The tolerance to simplify the polygons.
-            Defaults to 0.5.
-        max_points (int, optional): If polygon has more than max_points,
-            simplify the polygon. Defaults to 1000.
 
     Returns:
         dict: The response from the DSA.
@@ -539,51 +535,44 @@ def post_annotations_from_gdf(
     """
     elements = []
 
+    # This step makes sure that each row contains a single polygon.
+    # Multi-polygons will be exploded into multiple rows.
+    gdf = gdf.explode(index_parts=False).reset_index(drop=True)
+
     # Process the dataframe.
-    for _, row in gdf.iterrows():
-        # Flatten multipolygon to list of polygons.
-        list_of_polygons = list(
-            row["geometry"].geoms
-        )  # assuming multipolygons
-        label = row["label"]
+    for _, r in gdf.iterrows():
+        label = r["label"]
+        poly = r["geometry"]
 
-        for poly in list_of_polygons:
-            exterior_poly = list(poly.exterior.coords)
-            interior_polys = [
-                list(interior.coords) for interior in poly.interiors
-            ]
+        exterior_poly = list(poly.exterior.coords)
+        interior_polys = [list(interior.coords) for interior in poly.interiors]
 
-            if len(exterior_poly) > max_points:
-                poly = poly.simplify(tolerance, preserve_topology=True)
-                exterior_poly = list(poly.exterior.coords)
+        points = [[int(xy[0]), int(xy[1]), 0] for xy in exterior_poly]
 
-            points = [
-                [int(xy[0]) * 2, int(xy[1]) * 2, 0] for xy in exterior_poly
-            ]
+        if len(points) == 0:
+            continue
 
-            holes = []
+        holes = []
 
-            for interior_poly in interior_polys:
-                hole = [
-                    [int(xy[0]) * 2, int(xy[1]) * 2, 0] for xy in interior_poly
-                ]
-                holes.append(hole)
+        for interior_poly in interior_polys:
+            hole = [[int(xy[0]), int(xy[1]), 0] for xy in interior_poly]
+            holes.append(hole)
 
-            element = {
-                "points": points,
-                "fillColor": idx_config[label]["fillColor"],
-                "lineColor": idx_config[label]["lineColor"],
-                "type": "polyline",
-                "lineWidth": 2,
-                "closed": True,
-                "label": {"value": idx_config[label]["label"]},
-                "group": idx_config[label]["group"],
-            }
+        element = {
+            "points": points,
+            "fillColor": idx_config[label]["fillColor"],
+            "lineColor": idx_config[label]["lineColor"],
+            "type": "polyline",
+            "lineWidth": 2,
+            "closed": True,
+            "label": {"value": idx_config[label]["label"]},
+            "group": idx_config[label]["group"],
+        }
 
-            if len(holes):
-                element["holes"] = holes
+        if len(holes):
+            element["holes"] = holes
 
-            elements.append(element)
+        elements.append(element)
 
     response = gc.post(
         "/annotation",
@@ -806,6 +795,10 @@ def remove_overlapping_annotations(
             # Convert the geometry back to the original format.
             del element["order"]
             geometry = element.pop("geometry")
+
+            # If the object ended up being a line, skipt it.
+            if isinstance(geometry, LineString):
+                continue
 
             exterior_poly = list(geometry.exterior.coords)
             interior_polys = [
