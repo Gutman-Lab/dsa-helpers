@@ -32,13 +32,13 @@ def _proccess_tile_with_masks_from_dsa_annotations(
     sf,
     img_dir,
     mask_dir,
-    background_value,
-    background_index,
+    edge_value,
+    background_id,
     edge_thr,
     ignore_existing,
-    ignore_labels,
-    ignore_index,
+    ignore_id,
     ignore_value,
+    ignore_ids,
 ):
     """Processing tiles with masks, used in multiprocessing only."""
     # Calcualte the x and y at magnification desired.
@@ -81,7 +81,7 @@ def _proccess_tile_with_masks_from_dsa_annotations(
             0,
             tile_size - w,
             cv.BORDER_CONSTANT,
-            value=background_value,
+            value=edge_value,
         )
 
         h, w = img.shape[:2]
@@ -96,12 +96,13 @@ def _proccess_tile_with_masks_from_dsa_annotations(
 
     # Draw the dataframe on the tile mask.
     mask = draw_gdf_on_array(
-        tile_gdf, (h, w), default_value=background_index
+        tile_gdf, (h, w), default_value=background_id
     ).copy()
 
-    if ignore_labels is not None:
-        img[np.isin(mask, ignore_labels)] = ignore_value
-        mask[np.isin(mask, ignore_labels)] = ignore_index
+    if ignore_ids is not None:
+        # Apply the ignore ids to the image and mask.
+        img[np.isin(mask, ignore_ids)] = ignore_value
+        mask[np.isin(mask, ignore_ids)] = ignore_id
 
     # Save the tile image and mask.
     imwrite(img_fp, img)
@@ -121,12 +122,12 @@ def tile_wsi_with_masks_from_dsa_annotations(
     mag: float | None = None,
     prepend_name: str = "",
     nproc: int = 1,
-    background_value: tuple[int, int, int] | int = (255, 255, 255),
-    background_index: int = 0,
+    edge_value: tuple[int, int, int] | int = (255, 255, 255),
+    background_id: int = 0,
     edge_thr: float = 0.25,
     ignore_existing: bool = False,
     ignore_labels: str | list[str] | None = None,
-    ignore_index: int = 255,
+    ignore_id: int = 255,
     ignore_value: tuple[int, int, int] = (255, 255, 255),
     notebook_tqdm: bool = False,
 ) -> list[str]:
@@ -187,11 +188,14 @@ def tile_wsi_with_masks_from_dsa_annotations(
     else:
         from tqdm import tqdm
 
+    # Should be a list of string labels.
     if isinstance(ignore_labels, str):
         ignore_labels = [ignore_labels]
 
     if ignore_labels is not None:
-        ignore_labels = [label2id[label] for label in ignore_labels]
+        ignore_ids = [label2id[label] for label in ignore_labels]
+    else:
+        ignore_ids = None
 
     # Read the tile source.
     ts = large_image.getTileSource(wsi_fp)
@@ -218,9 +222,8 @@ def tile_wsi_with_masks_from_dsa_annotations(
 
     gdf = gpd.GeoDataFrame.from_features(geojson_ann_doc.get("features", []))
 
-    if label_col == "label":
-        # Convert the label column, which is a dictionary, set it to its 'value' key.
-        gdf["label"] = gdf["label"].apply(lambda x: x.get("value", ""))
+    # Convert the label column, which is a dictionary, set it to its 'value' key.
+    gdf["label"] = gdf["label"].apply(lambda x: x.get("value", ""))
 
     # Filter to polygons in label2id.
     gdf = gdf[gdf[label_col].isin(label2id.keys())]
@@ -235,7 +238,7 @@ def tile_wsi_with_masks_from_dsa_annotations(
         )
     )
 
-    # Add and idx column, which is the map of the group to the label2id.
+    # Add an idx column, which is the map of the group to the label2id.
     gdf["idx"] = gdf[label_col].map(label2id)
 
     # Get the top left corner of every tile in the WSI, at scan mag.
@@ -268,13 +271,13 @@ def tile_wsi_with_masks_from_dsa_annotations(
                     scan_to_mag_sf,
                     img_dir,
                     mask_dir,
-                    background_value,
-                    background_index,
+                    edge_value,
+                    background_id,
                     edge_thr,
                     ignore_existing,
-                    ignore_labels,
-                    ignore_index,
+                    ignore_id,
                     ignore_value,
+                    ignore_ids,
                 ),
             )
             for xy in xys
