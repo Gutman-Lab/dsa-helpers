@@ -10,8 +10,8 @@ import geopandas as gpd
 from shapely.affinity import scale
 import pandas as pd
 
-from dsa_helpers.image_utils import label_mask_to_polygons
-from dsa_helpers.gpd_utils import remove_gdf_overlaps
+from ...image_utils import label_mask_to_polygons
+from ...gpd_utils import remove_gdf_overlaps
 
 
 def inference(
