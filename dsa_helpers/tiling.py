@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Functions for tiling images.
 
 Functions:
@@ -7,6 +6,7 @@ Functions:
 - tile_image_with_mask: Tile an image and its corresponding mask.
 
 """
+
 import large_image
 import cv2 as cv
 import numpy as np
@@ -24,12 +24,12 @@ def _proccess_tile_with_masks_from_dsa_annotations(
     gdf,
     ts,
     prepend_name,
-    x,
-    y,
+    scan_x,
+    scan_y,
     scan_tile_size,
     tile_size,
     mag,
-    sf,
+    scan_to_mag_sf,
     img_dir,
     mask_dir,
     edge_value,
@@ -38,12 +38,13 @@ def _proccess_tile_with_masks_from_dsa_annotations(
     ignore_existing,
     ignore_id,
     ignore_value,
-    ignore_ids,
+    label_col,
+    ignore_labels,
 ):
     """Processing tiles with masks, used in multiprocessing only."""
     # Calcualte the x and y at magnification desired.
-    x_mag = int(x * sf)
-    y_mag = int(y * sf)
+    x_mag = int(scan_x * scan_to_mag_sf)
+    y_mag = int(scan_y * scan_to_mag_sf)
 
     # Format the filepath to save the tile.
     fn = f"{prepend_name}x{x_mag}y{y_mag}.png"
@@ -57,10 +58,10 @@ def _proccess_tile_with_masks_from_dsa_annotations(
     # Get the tile.
     img = ts.getRegion(
         region={
-            "left": x,
-            "top": y,
-            "right": x + scan_tile_size,
-            "bottom": y + scan_tile_size,
+            "left": scan_x,
+            "top": scan_y,
+            "right": scan_x + scan_tile_size,
+            "bottom": scan_y + scan_tile_size,
         },
         format=large_image.constants.TILE_FORMAT_NUMPY,
         scale={"magnification": mag},
@@ -99,10 +100,19 @@ def _proccess_tile_with_masks_from_dsa_annotations(
         tile_gdf, (h, w), default_value=background_id
     ).copy()
 
-    if ignore_ids is not None:
+    if ignore_labels is not None and len(ignore_labels):
+        ignore_gdf = tile_gdf[tile_gdf[label_col].isin(ignore_labels)].copy()
+        ignore_gdf["idx"] = [1] * len(ignore_gdf)
+
+        # Create a mask of the ignore labels.
+        ignore_mask = draw_gdf_on_array(
+            ignore_gdf,
+            (h, w),
+        ).copy()
+
         # Apply the ignore ids to the image and mask.
-        img[np.isin(mask, ignore_ids)] = ignore_value
-        mask[np.isin(mask, ignore_ids)] = ignore_id
+        img[np.where(ignore_mask == 1)] = ignore_value
+        mask[np.where(ignore_mask == 1)] = ignore_id
 
     # Save the tile image and mask.
     imwrite(img_fp, img)
@@ -192,11 +202,6 @@ def tile_wsi_with_masks_from_dsa_annotations(
     if isinstance(ignore_labels, str):
         ignore_labels = [ignore_labels]
 
-    if ignore_labels is not None:
-        ignore_ids = [label2id[label] for label in ignore_labels]
-    else:
-        ignore_ids = None
-
     # Read the tile source.
     ts = large_image.getTileSource(wsi_fp)
 
@@ -242,10 +247,10 @@ def tile_wsi_with_masks_from_dsa_annotations(
     gdf["idx"] = gdf[label_col].map(label2id)
 
     # Get the top left corner of every tile in the WSI, at scan mag.
-    xys = [
-        (x, y)
-        for x in range(0, ts_metadata["sizeX"], scan_stride)
-        for y in range(0, ts_metadata["sizeY"], scan_stride)
+    scan_xys = [
+        (scan_x, scan_y)
+        for scan_x in range(0, ts_metadata["sizeX"], scan_stride)
+        for scan_y in range(0, ts_metadata["sizeY"], scan_stride)
     ]
 
     # Create directory to save tile images and masks.
@@ -277,10 +282,11 @@ def tile_wsi_with_masks_from_dsa_annotations(
                     ignore_existing,
                     ignore_id,
                     ignore_value,
-                    ignore_ids,
+                    label_col,
+                    ignore_labels,
                 ),
             )
-            for xy in xys
+            for xy in scan_xys
         ]
 
         tile_info = []
