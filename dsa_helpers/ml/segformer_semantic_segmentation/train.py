@@ -16,7 +16,7 @@ from .evaluate import per_class_dice_on_dataset
 from ..callbacks import MetricsLoggerCallback
 
 
-def train_segformer_semantic_segmentation_model(
+def train(
     save_dir: str,
     train_data: pd.DataFrame | str,
     val_data: pd.DataFrame | str,
