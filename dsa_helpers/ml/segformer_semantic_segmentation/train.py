@@ -80,6 +80,11 @@ def train(
         tuple: A tuple containing the trainer and the results dictionary.
 
     """
+    save_dir_path = Path(save_dir)
+
+    if save_dir_path.is_dir():
+        raise FileExistsError(f"Save directory {save_dir} already exists.")
+
     # Read the dataframes if they are strings.
     if isinstance(train_data, str):
         train_data = pd.read_csv(train_data)
