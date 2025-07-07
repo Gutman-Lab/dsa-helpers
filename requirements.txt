@@ -16,3 +16,4 @@ torchvision
 large-image
 rasterio
 colorama
+albumentations
