@@ -2,6 +2,8 @@ from transformers import SegformerImageProcessor
 from torchvision.transforms import ColorJitter
 import albumentations as A
 from typing import Callable
+import numpy as np
+from PIL import Image
 
 
 def val_transforms(example_batch):
@@ -33,20 +35,89 @@ def train_transforms(example_batch):
 
 
 def get_train_transforms(
-    square_symmetry_prob: float | None = 1.,
+    square_symmetry_prob: float | None = 1.0,
     rotate_limit: int = 45,
-    rotate_prob: float | None = 0.5
-    rotate_fill: int
+    rotate_prob: float | None = 0.5,
+    fill: tuple[float, ...] | float = 255.0,
+    fill_mask: tuple[float, ...] | float = 0.0,
+    brightness: float = 0.25,
+    contrast: float = 0.25,
+    saturation: float = 0.25,
+    hue: float = 0.1,
 ) -> Callable:
     """Get a train transform function that can be used to transform a
     batch of images and labels. Used with batches for segformer
     semantic segmentation models.
 
     Args:
+        square_symmetry_prob (float | None, optional): Probability of
+            applying square symmetry. Default is 1.0.
+        rotate_limit (int, optional): Maximum rotation limit in degrees.
+            Default is 45.
+        rotate_prob (float | None, optional): Probability of applying
+            rotation. Default is 0.5.
+        fill (tuple[float, ...] | float, optional): Fill value for the
+            image. Default is 255.0.
+        fill_mask (tuple[float, ...] | float, optional): Fill value for
+            the mask. Default is 0.0.
+        brightness (float, optional): Brightness adjustment factor.
+            Default is 0.25.
+        contrast (float, optional): Contrast adjustment factor.
+            Default is 0.25.
+        saturation (float, optional): Saturation adjustment factor.
+            Default is 0.25.
+        hue (float, optional): Hue adjustment factor. Default is 0.1.
+
+    Returns:
+        Callable: A function that can be used to transform a batch of
+            images and labels.
 
     """
-    return A.Compose(
-        [
-            A.RandomBrightnessContrast(p=0.5),
-        ]
+    albumentation_pipeline = []
+
+    if square_symmetry_prob is not None:
+        albumentation_pipeline.append(A.SquareSymmetry(p=square_symmetry_prob))
+
+    if rotate_prob is not None:
+        albumentation_pipeline.append(
+            A.Rotate(
+                limit=rotate_limit,
+                fill=fill,
+                p=rotate_prob,
+                fill_mask=fill_mask,
+            )
+        )
+
+    jitter = ColorJitter(
+        brightness=brightness,
+        contrast=contrast,
+        saturation=saturation,
+        hue=hue,
     )
+
+    processor = SegformerImageProcessor()
+
+    def transform(batch):
+        if len(albumentation_pipeline):
+            images, labels = [], []
+
+            # Pass through the albumentation pipeline.
+            for img, label in zip(batch["pixel_values"], batch["label"]):
+                # Apply the albumentation pipeline.
+                img = np.array(img)
+                label = np.array(label)
+
+                augmented = albumentation_pipeline(image=img, mask=label)
+                images.append(Image.fromarray(augmented["image"]))
+                labels.append(Image.fromarray(augmented["mask"]))
+        else:
+            images = batch["pixel_values"]
+            labels = batch["label"]
+
+        # Apply color jitter.
+        images = [jitter(x) for x in images]
+
+        # Process the images and labels.
+        return processor(images, labels)
+
+    return transform
