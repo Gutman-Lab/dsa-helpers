@@ -88,6 +88,11 @@ def get_train_transforms(
             )
         )
 
+    if len(albumentation_pipeline):
+        albumentation_pipeline = A.Compose(albumentation_pipeline)
+    else:
+        albumentation_pipeline = None
+
     jitter = ColorJitter(
         brightness=brightness,
         contrast=contrast,
@@ -98,7 +103,7 @@ def get_train_transforms(
     processor = SegformerImageProcessor()
 
     def transform(batch):
-        if len(albumentation_pipeline):
+        if albumentation_pipeline is not None:
             images, labels = [], []
 
             # Pass through the albumentation pipeline.

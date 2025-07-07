@@ -11,7 +11,7 @@ import torch
 from torch import nn
 
 from .utils import create_segformer_segmentation_dataset
-from .transforms import train_transforms, val_transforms
+from .transforms import get_train_transforms, val_transforms
 from .evaluate import per_class_dice_on_dataset
 from ..callbacks import MetricsLoggerCallback
 
@@ -32,6 +32,15 @@ def train(
     random_state: int = 42,
     tile_size: int = 512,
     tqdm_notebook: bool = False,
+    square_symmetry_prob: float | None = 1.0,
+    rotate_limit: int = 45,
+    rotate_prob: float | None = 0.5,
+    fill: tuple[float, ...] | float = 255.0,
+    fill_mask: tuple[float, ...] | float = 0.0,
+    brightness: float = 0.25,
+    contrast: float = 0.25,
+    saturation: float = 0.25,
+    hue: float = 0.1,
 ):
     """Workflow for training a SegFormer semantic segmentation model.
 
@@ -68,13 +77,30 @@ def train(
             will be used. Defaults to None. Note that there is a bug
             that this value must be kept short otherwise a cuda memory
             error will occur.
-
         random_state (int, optional): Random state for the validation
             split. Defaults to 42.
         tile_size (int, optional): Size of the tiles to use for the model.
             Defaults to 512.
         tqdm_notebook (bool, optional): Whether to use a tqdm notebook.
             Defaults to False.
+        square_symmetry_prob (float | None, optional): Probability of
+            applying square symmetry to the images. Defaults to 1.0.
+        rotate_limit (int, optional): Maximum number of degrees to
+            rotate the images. Defaults to 45.
+        rotate_prob (float | None, optional): Probability of applying
+            rotation to the images. Defaults to 0.5.
+        fill (tuple[float, ...] | float, optional): Value to fill the
+            image with. Defaults to 255.0.
+        fill_mask (tuple[float, ...] | float, optional): Value to fill
+            the mask with. Defaults to 0.0.
+        brightness (float, optional): Brightness factor to apply to the
+            images. Defaults to 0.25.
+        contrast (float, optional): Contrast factor to apply to the
+            images. Defaults to 0.25.
+        saturation (float, optional): Saturation factor to apply to the
+            images. Defaults to 0.25.
+        hue (float, optional): Hue factor to apply to the images.
+            Defaults to 0.1.
 
     Returns:
         tuple: A tuple containing the trainer and the results dictionary.
@@ -129,6 +155,17 @@ def train(
     )
 
     # Create datasets for the model.
+    train_transforms = get_train_transforms(
+        square_symmetry_prob=square_symmetry_prob,
+        rotate_limit=rotate_limit,
+        rotate_prob=rotate_prob,
+        fill=fill,
+        fill_mask=fill_mask,
+        brightness=brightness,
+        contrast=contrast,
+        saturation=saturation,
+        hue=hue,
+    )
     train_dataset = create_segformer_segmentation_dataset(
         train_data, transforms=train_transforms
     )
