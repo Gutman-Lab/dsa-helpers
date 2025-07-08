@@ -1,9 +1,12 @@
 """Functions for tiling images.
 
 Functions:
-- tile_wsi_with_masks_from_dsa_annotations: Tile a WSI with semantic segmentation label masks created from DSA annotations.
+- tile_wsi_with_masks_from_dsa_annotations: Tile a WSI with semantic
+    segmentation label masks created from DSA annotations.
 - tile_image: Tile an image into smaller images.
 - tile_image_with_mask: Tile an image and its corresponding mask.
+- tile_wsi_for_segformer_semantic_segmentation: Tile a WSI with semantic
+    segmentation label masks created from DSA annotations. Serially.
 
 """
 
@@ -15,9 +18,22 @@ from multiprocessing import Pool
 import pandas as pd
 from shapely.affinity import scale, translate
 import geopandas as gpd
+import histomicstk as htk
 
 from . import imwrite, imread
 from .gpd_utils import draw_gdf_on_array
+
+stain_color_map = htk.preprocessing.color_deconvolution.stain_color_map
+
+# specify stains of input image
+stains = [
+    "hematoxylin",  # nuclei stain
+    "eosin",  # cytoplasm stain
+    "null",
+]  # set to null if input contains only two stains
+
+# create stain matrix
+W = np.array([stain_color_map[st] for st in stains]).T
 
 
 def _proccess_tile_with_masks_from_dsa_annotations(
@@ -462,3 +478,271 @@ def tile_image_with_mask(
         tile_data.append([str(tile_img_fp), str(tile_mask_fp), x, y])
 
     return pd.DataFrame(tile_data, columns=["fp", "mask_fp", "x", "y"])
+
+
+def tile_wsi_for_segformer_semantic_segmentation(
+    wsi_fp: str,
+    geojson_ann_doc: dict,
+    group2id: dict,
+    save_dir: str,
+    tile_size: int = 512,
+    label_col: str = "label",
+    stride: int | None = None,
+    mag: float | None = 10.0,
+    prepend_name: str = "",
+    edge_value: tuple[int, int, int] | int = (255, 255, 255),
+    background_id: int = 0,
+    edge_thr: float = 0.25,
+    ignore_labels: str | list[str] | None = "Exclude",
+    ignore_id: int = 0,
+    ignore_value: tuple[int, int, int] = (255, 255, 255),
+    image_type: str = "rgb",
+    notebook_tqdm: bool = False,
+) -> pd.DataFrame:
+    """Tile a WSI with semantic segmentation label masks created from
+    DSA annotations. DSA annotation class labels for elements are
+    specified in the "label" dictionary in the "value" key of each
+    element.
+
+    Args:
+        wsi_fp (str): file path to WSI.
+        geojson_ann_doc dict: DSA annotation document in geojson format.
+        label2id (dict): mapping of label names to integer indices.
+        save_dir (str): directory to save the tiled images.
+        tile_size (int): size of the tile images at desired
+            magnificaiton.
+        label_col (str, optional): Column name for polygon labels.
+            Options are "group" or "label". Defaults to "group".
+        stride (int | None, optional): stride of the tiling. If None,
+            the stride will be the same as the tile size. Defaults to
+            None.
+        mag (float | None, optional): magnification level of the WSI.
+            If None, the function will use the default magnification
+            level. Defaults to None.
+        prepend_name (str, optional): prepend name to the created tile
+            images and masks. Defaults to "".
+        background_value (int, optional): Value to use for the
+            background in the images, used when padding tiles at the
+            edge of WSI. Defaults to (255, 255, 255). If set to a single
+            value it will be used for all channels.
+        background_index (int, optional): Index of the background class.
+            Defaults to 0.
+        edge_thr (float, optional): For tiles at the edge, if most of
+            the tile is padded background then it is ignored. If the
+            amount of tile in WSI / amount of tile padded is less than
+            this threshold, the tile is ignored. Defaults to 0.25.
+        ignore_labels (str | list[str] | None, optional): Labels to
+            ignore. Defaults to None.
+        ignore_index (int, optional): Index of the ignore class.
+            Defaults to 255.
+        ignore_value (tuple[int, int, int], optional): Value to use for
+            the ignore class in the images. Defaults to (255, 255, 255).
+            If set to a single value it will be used for all channels.
+        image_type (str, optional): The type of image to save. Can be
+            "rgb", "hematoxylin", or "both", defaults to "rgb".
+        notebook_tqdm (bool, optional): Whether to use tqdm in a
+            notebook. Defaults to False.
+
+    Returns:
+        pandas.DataFrame: A pandas dataframe containing the filepath of
+            the image and mask and x, y coordinate.
+
+    """
+    if notebook_tqdm:
+        from tqdm.notebook import tqdm
+    else:
+        from tqdm import tqdm
+
+    # Should be a list of string labels.
+    if ignore_labels is None:
+        ignore_labels = []
+    elif isinstance(ignore_labels, str):
+        ignore_labels = [ignore_labels]
+
+    # If there is an ignore label that is not in group2id, remove it.
+    ignore_labels = [label for label in ignore_labels if label in group2id]
+
+    # Read the tile source.
+    ts = large_image.getTileSource(wsi_fp)
+
+    # Get the magnification at scan.
+    ts_metadata = ts.getMetadata()
+    scan_mag = ts_metadata["magnification"]
+
+    # Set the stride.
+    if stride is None:
+        stride = tile_size
+
+    # Get tile size & stride at scan magnification.
+    # Also, determine scaling factor to go from scan mag to desired mag.
+    if mag is None:
+        scan_tile_size = tile_size
+        scan_stride = stride
+        mag = scan_mag
+        scan_to_mag_sf = 1
+    else:
+        scan_to_mag_sf = mag / scan_mag  # scan mag -> desired mag
+        scan_tile_size = int(tile_size / scan_to_mag_sf)
+        scan_stride = int(stride / scan_to_mag_sf)
+
+    gdf = gpd.GeoDataFrame.from_features(geojson_ann_doc.get("features", []))
+
+    # Convert the label column, which is a dictionary, set it to its 'value' key.
+    gdf["label"] = gdf["label"].apply(lambda x: x.get("value", ""))
+
+    # Filter to polygons in group2id.
+    gdf = gdf[gdf[label_col].isin(group2id.keys())]
+
+    # Remove rows with geometry is not a Polygon.
+    gdf = gdf[gdf["geometry"].type == "Polygon"]
+
+    # Scale the coordinates to mag.
+    gdf["geometry"] = gdf["geometry"].apply(
+        lambda geom: scale(
+            geom, xfact=scan_to_mag_sf, yfact=scan_to_mag_sf, origin=(0, 0)
+        )
+    )
+
+    # Add an idx column, which is the map of the group to the group2id.
+    gdf["idx"] = gdf[label_col].map(group2id)
+
+    # Get the top left corner of every tile in the WSI, at scan mag.
+    xys = [
+        (x, y)
+        for x in range(0, ts_metadata["sizeX"], scan_stride)
+        for y in range(0, ts_metadata["sizeY"], scan_stride)
+    ]
+
+    # Create directory to save tile images and masks.
+    save_dir = Path(save_dir)
+    img_dir = save_dir / "images"
+    mask_dir = save_dir / "masks"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    mask_dir.mkdir(exist_ok=True)
+
+    tile_info = []
+
+    for xy in tqdm(xys, desc="Tiling..."):
+        x, y = xy
+
+        # Calcualte the x and y at magnification desired.
+        x_mag = int(x * scan_to_mag_sf)
+        y_mag = int(y * scan_to_mag_sf)
+
+        # Format the filepath to save the tile.
+        fn = f"{prepend_name}x{x_mag}y{y_mag}.png"
+        deconv_fn = f"{prepend_name}x{x_mag}y{y_mag}_deconv.png"
+        img_fp = img_dir / fn
+        mask_fp = mask_dir / fn
+        deconv_img_fp = img_dir / deconv_fn
+
+        # Get the tile.
+        img = ts.getRegion(
+            region={
+                "left": x,
+                "top": y,
+                "right": x + scan_tile_size,
+                "bottom": y + scan_tile_size,
+            },
+            format=large_image.constants.TILE_FORMAT_NUMPY,
+            scale={"magnification": mag},
+        )[0][:, :, :3].copy()
+
+        deconv_img = None
+
+        if image_type in ("hematoxylin", "both"):
+            deconv_img = (
+                htk.preprocessing.color_deconvolution.color_deconvolution(
+                    img, W
+                ).Stains[:, :, 0]
+            )
+
+            deconv_img = np.stack(
+                [deconv_img, deconv_img, deconv_img], axis=-1
+            )
+
+        # Check if the tile area is below threshold.
+        h, w = img.shape[:2]
+
+        if h * w / (tile_size * tile_size) < edge_thr:
+            continue
+
+        if (h, w) != (tile_size, tile_size):
+            # Pad the image with zeroes to make it the desired size.
+            if image_type in ("rgb", "both"):
+                img = cv.copyMakeBorder(
+                    img,
+                    0,
+                    tile_size - h,
+                    0,
+                    tile_size - w,
+                    cv.BORDER_CONSTANT,
+                    value=edge_value,
+                )
+
+            if deconv_img is not None:
+                deconv_img = cv.copyMakeBorder(
+                    deconv_img,
+                    0,
+                    tile_size - h,
+                    0,
+                    tile_size - w,
+                    cv.BORDER_CONSTANT,
+                    value=edge_value,
+                )
+
+        # Create a copy of the geodataframe for this tile.
+        tile_gdf = gdf.copy()
+
+        # Translate the coordinates so 0, 0 is the top left corner of the tile.
+        tile_gdf["geometry"] = tile_gdf["geometry"].apply(
+            lambda geom: translate(geom, xoff=-x_mag, yoff=-y_mag)
+        )
+
+        # Draw the dataframe on the tile mask.
+        mask = draw_gdf_on_array(
+            tile_gdf, (tile_size, tile_size), default_value=background_id
+        ).copy()
+
+        if len(ignore_labels):
+            # Apply the ignore labels to regiosn of the image(s) and mask.
+            ignore_gdf = tile_gdf[
+                tile_gdf[label_col].isin(ignore_labels)
+            ].copy()
+            ignore_gdf["idx"] = [1] * len(ignore_gdf)
+
+            # Create a mask of the ignore labels.
+            ignore_mask = draw_gdf_on_array(
+                ignore_gdf,
+                (h, w),
+            ).copy()
+
+            mask[np.where(ignore_mask == 1)] = ignore_id
+
+            if image_type in ("rgb", "both"):
+                img[np.where(ignore_mask == 1)] = ignore_value
+
+            if deconv_img is not None:
+                deconv_img[np.where(ignore_mask == 1)] = ignore_value
+
+        # Save the tile image and mask.
+        if image_type in ("rgb", "both"):
+            imwrite(img_fp, img)
+            tile_info.append([str(img_fp), str(mask_fp), x_mag, y_mag])
+
+        if deconv_img is not None:
+            imwrite(deconv_img_fp, deconv_img)
+            tile_info.append(
+                [
+                    str(deconv_img_fp),
+                    str(mask_fp),
+                    x_mag,
+                    y_mag,
+                ]
+            )
+
+        imwrite(mask_fp, mask.astype(np.uint8), grayscale=True)
+
+    # Convert to pandas dataframe.
+    df = pd.DataFrame(tile_info, columns=["fp", "mask_fp", "x", "y"])
+    return df
