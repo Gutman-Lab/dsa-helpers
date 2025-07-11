@@ -12,11 +12,12 @@ Functions:
 - post_annotations_from_gdf: Post annotations from a GeoDataFrame
 - remove_overlapping_annotations: Remove overlapping regions from elements
 - upload_dir_to_dsa: Upload a local directory to a DSA item
+- is_valid_color: Check if a string is a valid color string for DSA annotations.
 
 """
 
 from girder_client import GirderClient, HttpError
-import pickle, shutil, tempfile
+import pickle, shutil, tempfile, re
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -897,3 +898,57 @@ def upload_dir_to_dsa(
             item_id,
             str(temp_dir / "checkpoint.zip"),
         )
+
+
+def is_valid_color(color_string: str) -> bool:
+    """Check if a string is a valid color string for DSA annotations.
+
+    Args:
+        color_string (str): The color string to check.
+
+    Returns:
+        bool: True if the color string is valid, False otherwise.
+
+    """
+    # Separate patterns for RGB and RGBA
+    rgb_pattern = r'^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$'
+    rgba_pattern = r'^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*([01]\.?\d*)\s*\)$'
+
+    def is_valid_rgb(color_string):
+        match = re.match(rgb_pattern, color_string)
+        if not match:
+            return False
+        
+        # Extract the captured groups (the numbers)
+        r, g, b = map(int, match.groups())
+        
+        # Validate the ranges
+        return 0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255
+
+    def is_valid_rgba(color_string):
+        match = re.match(rgba_pattern, color_string)
+        if not match:
+            return False
+        
+        # Extract the captured groups
+        r, g, b, a = match.groups()
+        
+        # Convert to numbers
+        r, g, b = map(int, [r, g, b])
+        a = float(a)
+        
+        # Validate RGB values (0-255)
+        if not (0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255):
+            return False
+        
+        # Validate alpha (0-1)
+        if not (0 <= a <= 1):
+            return False
+        
+        return True
+    
+    if is_valid_rgb(color_string):
+        return True
+    if is_valid_rgba(color_string):
+        return True
+    return False
