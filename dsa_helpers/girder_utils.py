@@ -1074,7 +1074,7 @@ def semantic_segmentation_annotation_metrics(
     # Subtract the ignore ground truth from the inference.
     if ignore_groups is not None:
         inf_gdf = gpd.overlay(
-            inf_gdf, ignore_gdf, how="difference", keep_geom_type=True
+            inf_gdf, ignore_gdf, how="difference", keep_geom_type=False
         )
 
     # Turns the gdfs into a single row per group, as multipolygons as needed.
