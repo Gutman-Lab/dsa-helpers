@@ -2,17 +2,25 @@
 documents, such as annotation documents.
 
 Functions:
-- login: Authenticate a girder client with the given credentials or interactively
+- login: Authenticate a girder client with the given credentials or
+  interactively
 - get_item_large_image_metadata: Get large image metadata for an item
-- get_thumbnail: Get the thumbnail image by a specific magnification or shape
+- get_thumbnail: Get the thumbnail image by a specific magnification or
+  shape
 - get_region: Get image region from DSA
-- get_element_contours: Get the contours of an element, regardless of the type
-- get_roi_images: Get regions of interest (ROIs) as images from DSA annotations
+- get_element_contours: Get the contours of an element, regardless of
+  the type
+- get_roi_images: Get regions of interest (ROIs) as images from DSA
+  annotations
 - post_annotation: Post a new annotation to the DSA
 - post_annotations_from_gdf: Post annotations from a GeoDataFrame
-- remove_overlapping_annotations: Remove overlapping regions from elements
+- remove_overlapping_annotations: Remove overlapping regions from
+  elements
 - upload_dir_to_dsa: Upload a local directory to a DSA item
-- is_valid_color: Check if a string is a valid color string for DSA annotations.
+- is_valid_color: Check if a string is a valid color string for DSA
+  annotations.
+- semantic_segmentation_annotation_metrics: Calculate metrics for
+  semantic segmentation annotations.
 
 """
 
@@ -911,17 +919,17 @@ def is_valid_color(color_string: str) -> bool:
 
     """
     # Separate patterns for RGB and RGBA
-    rgb_pattern = r'^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$'
-    rgba_pattern = r'^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*([01]\.?\d*)\s*\)$'
+    rgb_pattern = r"^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$"
+    rgba_pattern = r"^rgba\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*([01]\.?\d*)\s*\)$"
 
     def is_valid_rgb(color_string):
         match = re.match(rgb_pattern, color_string)
         if not match:
             return False
-        
+
         # Extract the captured groups (the numbers)
         r, g, b = map(int, match.groups())
-        
+
         # Validate the ranges
         return 0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255
 
@@ -929,26 +937,190 @@ def is_valid_color(color_string: str) -> bool:
         match = re.match(rgba_pattern, color_string)
         if not match:
             return False
-        
+
         # Extract the captured groups
         r, g, b, a = match.groups()
-        
+
         # Convert to numbers
         r, g, b = map(int, [r, g, b])
         a = float(a)
-        
+
         # Validate RGB values (0-255)
         if not (0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255):
             return False
-        
+
         # Validate alpha (0-1)
         if not (0 <= a <= 1):
             return False
-        
+
         return True
-    
+
     if is_valid_rgb(color_string):
         return True
     if is_valid_rgba(color_string):
         return True
     return False
+
+
+def semantic_segmentation_annotation_metrics(
+    gc: GirderClient,
+    item_id: str,
+    gt_ann_docname: str,
+    inf_ann_docname: str,
+    ignore_groups: None | list[str] = None,
+    include_groups: None | list[str] = None,
+    gt_label_to_col: bool = False,
+    inf_label_to_col: bool = False,
+) -> dict:
+    """
+    Calculate the metrics for the test dataset for a given annotation
+    document name.
+
+    Args:
+        gc (girder_client.GirderClient): Authenticated girder client.
+        item_id (str): The item id of the WSI.
+        gt_ann_docname (str): The name of the ground truth annotation
+            document.
+        inf_ann_docname (str): The name of the inference annotation
+            document.
+        ignore_groups (list[str] | None, optional): A list of groups to
+            ignore. Defaults to None.
+        include_groups (list[str] | None, optional): A list of groups to
+            include. Defaults to None.
+        gt_label_to_col (bool, optional): Whether to convert the ground
+            truth label column to the group column. Defaults to False.
+        inf_label_to_col (bool, optional): Whether to convert the
+            inference label column to the group column. Defaults to
+            False.
+
+    Raises:
+        ValueError: If multiple annotation documents of the same name
+            are found.
+        ValueError: If no annotation document of the given name is
+            found.
+
+    Returns:
+        dict: A dictionary containing the metrics.
+
+    """
+    # Get the annotation documents.
+    ann_docs = gc.get(
+        "annotation",
+        parameters={"itemId": item_id, "name": gt_ann_docname, "limit": 0},
+    )
+
+    if len(ann_docs) > 1:
+        raise ValueError(
+            f"Multiple annotation documents of name {gt_ann_docname} found. Unsure which to use."
+        )
+    elif len(ann_docs):
+        # Get the full annotation document in geojson format.
+        gt_ann_doc = gc.get(f"annotation/{ann_docs[0]['_id']}/geojson")
+    else:
+        raise ValueError(
+            f"No annotation document of name {gt_ann_docname} found."
+        )
+
+    ann_docs = gc.get(
+        "annotation",
+        parameters={"itemId": item_id, "name": inf_ann_docname, "limit": 0},
+    )
+
+    if len(ann_docs) > 1:
+        raise ValueError(
+            f"Multiple annotation documents of name {inf_ann_docname} found. Unsure which to use."
+        )
+    elif len(ann_docs):
+        # Get the full annotation document in geojson format.
+        inf_ann_doc = gc.get(f"annotation/{ann_docs[0]['_id']}/geojson")
+    else:
+        raise ValueError(
+            f"No annotation document of name {inf_ann_docname} found."
+        )
+
+    # Convert the geojson to a geopandas dataframe.
+    gt_gdf = gpd.GeoDataFrame.from_features(gt_ann_doc["features"])
+    inf_gdf = gpd.GeoDataFrame.from_features(inf_ann_doc["features"])
+
+    # Convert the label to a column if requested.
+    if gt_label_to_col:
+        gt_gdf["group"] = gt_gdf["label"].apply(
+            lambda x: x.get("value", "") if isinstance(x, dict) else x
+        )
+
+    if inf_label_to_col:
+        inf_gdf["group"] = inf_gdf["label"].apply(
+            lambda x: x.get("value", "") if isinstance(x, dict) else x
+        )
+
+    if ignore_groups is not None and len(ignore_groups) == 0:
+        ignore_groups = None
+
+    if include_groups is not None and len(include_groups) == 0:
+        include_groups = None
+
+    if ignore_groups is not None:
+        # Get a dataframe of ignore ground truth.
+        ignore_gdf = gt_gdf[gt_gdf["group"].isin(ignore_groups)]
+
+    if include_groups is None:
+        # Get the unique groups in the ground truth.
+        include_groups = gt_gdf["group"].unique().tolist()
+
+    # Filter to only include the groups of interest.
+    gt_gdf = gt_gdf[gt_gdf["group"].isin(include_groups)]
+    inf_gdf = inf_gdf[inf_gdf["group"].isin(include_groups)]
+
+    # Subtract the ignore ground truth from the inference.
+    if ignore_groups is not None:
+        inf_gdf = gpd.overlay(
+            inf_gdf, ignore_gdf, how="difference", keep_geom_type=True
+        )
+
+    # Turns the gdfs into a single row per group, as multipolygons as needed.
+    gt_gdf = gt_gdf.dissolve(by="group", as_index=False)
+
+    if any(inf_gdf.is_valid == False):
+        inf_gdf["geometry"] = inf_gdf["geometry"].make_valid()
+
+    inf_gdf = inf_gdf.dissolve(by="group", as_index=False)
+
+    # Iterate through each label.
+    dice_scores = []
+    class_weights = []
+
+    for label in include_groups:
+        # Filter each gdf to only include the label.
+        gt_gdf_label = gt_gdf[gt_gdf["group"] == label]["geometry"]
+        inf_gdf_label = inf_gdf[inf_gdf["group"] == label]["geometry"]
+
+        if len(gt_gdf_label) == 0 or len(inf_gdf_label) == 0:
+            intersection = 0
+        else:
+            intersection = gt_gdf_label.intersection(inf_gdf_label).area.sum()
+
+        # Calculate the sum of the areas.
+        gt_area = gt_gdf_label.area.sum()
+        class_weights.append(gt_area)
+        sum_of_areas = gt_area + inf_gdf_label.area.sum()
+
+        if sum_of_areas:
+            dice_scores.append(float(2 * intersection / sum_of_areas))
+        else:
+            dice_scores.append(1)
+
+    dice_scores = np.array(dice_scores)
+    class_weights = np.array(class_weights)
+
+    # Calculate the weighted mean of the dice scores.
+    weighted_mean_dice = np.sum(dice_scores * class_weights) / np.sum(
+        class_weights
+    )
+
+    metrics = {"per_class_dice": {}}
+    for label, dice_score in zip(include_groups, dice_scores):
+        metrics["per_class_dice"][label] = float(dice_score)
+
+    metrics["weighted_mean_dice"] = float(weighted_mean_dice)
+
+    return metrics
