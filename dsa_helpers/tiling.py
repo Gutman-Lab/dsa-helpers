@@ -56,6 +56,7 @@ def _proccess_tile_with_masks_from_dsa_annotations(
     ignore_value,
     label_col,
     ignore_labels,
+    hematoxylin_channel,
 ):
     """Processing tiles with masks, used in multiprocessing only."""
     # Calcualte the x and y at magnification desired.
@@ -82,6 +83,12 @@ def _proccess_tile_with_masks_from_dsa_annotations(
         format=large_image.constants.TILE_FORMAT_NUMPY,
         scale={"magnification": mag},
     )[0][:, :, :3].copy()
+
+    if hematoxylin_channel:
+        img = htk.preprocessing.color_deconvolution.color_deconvolution(
+            img, W
+        ).Stains[:, :, 0]
+        img = np.stack([img, img, img], axis=-1)
 
     # Check if the tile area is below threshold.
     h, w = img.shape[:2]
@@ -156,6 +163,7 @@ def tile_wsi_with_masks_from_dsa_annotations(
     ignore_id: int = 255,
     ignore_value: tuple[int, int, int] = (255, 255, 255),
     notebook_tqdm: bool = False,
+    hematoxylin_channel: bool = False,
 ) -> list[str]:
     """Tile a WSI with semantic segmentation label masks created from
     DSA annotations. DSA annotation class labels for elements are
@@ -203,6 +211,9 @@ def tile_wsi_with_masks_from_dsa_annotations(
             If set to a single value it will be used for all channels.
         notebook_tqdm (bool, optional): Whether to use tqdm in a
             notebook. Defaults to False.
+        hematoxylin_channel (bool, optional): Whether to use the
+            hematoxylin channel when creating the segmentation mask.
+            Defaults to False.
 
     Returns:
         list[str]: A list of tuples: (tile file path, x, y coordinates
@@ -300,6 +311,7 @@ def tile_wsi_with_masks_from_dsa_annotations(
                     ignore_value,
                     label_col,
                     ignore_labels,
+                    hematoxylin_channel,
                 ),
             )
             for xy in scan_xys

@@ -9,9 +9,23 @@ from large_image import getTileSource
 import geopandas as gpd
 from shapely.affinity import scale
 import pandas as pd
+import histomicstk as htk
+import numpy as np
 
 from ...image_utils import label_mask_to_polygons
 from ...gpd_utils import remove_gdf_overlaps
+
+stain_color_map = htk.preprocessing.color_deconvolution.stain_color_map
+
+# specify stains of input image
+stains = [
+    "hematoxylin",  # nuclei stain
+    "eosin",  # cytoplasm stain
+    "null",
+]  # set to null if input contains only two stains
+
+# create stain matrix
+W = np.array([stain_color_map[st] for st in stains]).T
 
 
 def inference(
@@ -26,6 +40,7 @@ def inference(
     device: str | None = None,
     tolerance: float | None = 2.0,
     min_area: float = 1000,
+    hematoxylin_channel: bool = False,
 ) -> gpd.GeoDataFrame:
     """Inference using SegFormer semantic segmentation model on a WSI.
 
@@ -55,6 +70,9 @@ def inference(
             simplified. This is added to avoid simplifying small
             polygons that would probably lose too much information.
             Defaults to 1000.
+        hematoxylin_channel (bool, optional): Whether to use the
+            hematoxylin channel when predicting the segmentation mask.
+            Defaults to False.
 
     Returns:
         gpd.GeoDataFrame: A GeoDataFrame containing the predicted
@@ -112,6 +130,20 @@ def inference(
         # Get the batch of images.
         imgs = batch[0].view()  # returns a numpy array of shape (N, H, W, C)
         coordinates = batch[1]
+
+        if hematoxylin_channel:
+            img_list = []
+
+            for img in imgs:
+                img = (
+                    htk.preprocessing.color_deconvolution.color_deconvolution(
+                        img, W
+                    ).Stains[:, :, 0]
+                )
+                img = np.stack([img, img, img], axis=-1)
+                img_list.append(img)
+
+            imgs = img_list
 
         # Convert the numpy arrays to PIL images.
         imgs = [Image.fromarray(img) for img in imgs]
