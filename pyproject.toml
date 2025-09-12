@@ -10,7 +10,6 @@ dependencies = [
     'girder-client',
     'numpy',
     'setuptools',
-    'opencv-python',
     'pandas',
     'pymongo',
     'pillow',
@@ -26,6 +25,7 @@ dependencies = [
     "colorama",
     "albumentations"
 ]
+
 name = "dsa_helpers"
 authors = [
     {name = "Juan C. Vizcarra", email = "jvizcar@emory.edu"},
@@ -41,7 +41,12 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 keywords = ["dsa", "girder", "girder_client"]
-version = "v1.1.17"
+version = "v1.1.18dev0"
+
+[project.optional-dependencies]
+opencv = ["opencv-python"]
+opencv-headless = ["opencv-python-headless"]
+all = ["opencv-python"]  # Default to full opencv if user installs [all]
 
 [project.urls]
 Repository = "https://github.com/Gutman-Lab/dsa-python-utils"
