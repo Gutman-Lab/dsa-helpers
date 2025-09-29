@@ -6,6 +6,7 @@ from transformers import (
 )
 import numpy as np
 from pathlib import Path
+import tempfile, shutil
 
 import torch
 from torch import nn
@@ -13,7 +14,7 @@ from torch import nn
 from .utils import create_segformer_segmentation_dataset
 from .transforms import get_train_transforms, val_transforms
 from .evaluate import per_class_dice_on_dataset
-from ..callbacks import MetricsLoggerCallback
+from ..callbacks import MetricsLoggerCallback, BestModelCallback
 
 
 def train(
@@ -41,6 +42,7 @@ def train(
     contrast: float = 0.25,
     saturation: float = 0.25,
     hue: float = 0.1,
+    rank: int = 0,
 ):
     """Workflow for training a SegFormer semantic segmentation model.
 
@@ -101,6 +103,7 @@ def train(
             images. Defaults to 0.25.
         hue (float, optional): Hue factor to apply to the images.
             Defaults to 0.1.
+        rank (int, optional): Rank of the process. Defaults to 0.
 
     Returns:
         tuple: A tuple containing the trainer and the results dictionary.
@@ -108,8 +111,11 @@ def train(
     """
     save_dir_path = Path(save_dir)
 
-    if save_dir_path.is_dir():
-        raise FileExistsError(f"Save directory {save_dir} already exists.")
+    if rank == 0:
+        if save_dir_path.is_dir():
+            raise FileExistsError(f"Save directory {save_dir} already exists.")
+        else:
+            save_dir_path.mkdir(parents=True, exist_ok=True)
 
     # Read the dataframes if they are strings.
     if isinstance(train_data, str):
@@ -139,6 +145,10 @@ def train(
             ignore_mismatched_sizes=True,
         ).to(device)
 
+    if rank != 0:
+        # Create temp directory for the model.
+        save_dir = tempfile.mkdtemp()
+
     # Training arguments.
     training_args = TrainingArguments(
         str(save_dir),
@@ -150,7 +160,6 @@ def train(
         eval_strategy="epoch",
         save_strategy="epoch",
         logging_strategy="epoch",
-        load_best_model_at_end=True,
         save_total_limit=1,
     )
 
@@ -236,6 +245,11 @@ def train(
         metrics["mean_dice"] = float(np.mean(list(metrics.values())))
         return metrics
 
+    if rank == 0:
+        callbacks = [MetricsLoggerCallback, BestModelCallback(str(save_dir))]
+    else:
+        callbacks = [MetricsLoggerCallback]
+
     # Trainer
     trainer = Trainer(
         model=model,
@@ -243,73 +257,51 @@ def train(
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         compute_metrics=compute_metrics,
-        callbacks=[MetricsLoggerCallback],  # Add the custom callback here
+        callbacks=callbacks,
     )
 
-    # Train the model.
-    _ = trainer.train()
+    if rank != 0:
+        # Train the model.
+        _ = trainer.train()
 
-    # Rename the checkpoint to not include a step number.
-    save_dir = Path(save_dir)
-    for p in save_dir.iterdir():
-        if p.is_dir() and p.name.startswith("checkpoint-"):
-            p.rename(save_dir / "checkpoint")
+        # Delete the temp directory.
+        shutil.rmtree(save_dir)
+        return trainer, None
+    else:
+        print("Starting training...")
+        _ = trainer.train()
+        print("Training completed successfully!")
 
-    results = {"train": {}, "val": {}}
+        results = {"train": {}, "val": {}}
 
-    for log in trainer.state.log_history[:-1]:
-        epoch = log["epoch"]
+        for log in trainer.state.log_history[:-1]:
+            epoch = log["epoch"]
 
-        if epoch % 1:
-            continue  # only track end of each epoch
+            if epoch % 1:
+                continue  # only track end of each epoch
 
-        # Check if this is tracking train or validation.
-        if "eval_loss" in log:
-            data = results["val"]
-        else:
-            data = results["train"]
+            # Check if this is tracking train or validation.
+            if "eval_loss" in log:
+                data = results["val"]
+            else:
+                data = results["train"]
 
-        for k, v in log.items():
-            if k.startswith("eval_"):
-                k = k[5:]
+            for k, v in log.items():
+                if k.startswith("eval_"):
+                    k = k[5:]
 
-            if k not in data:
-                data[k] = []
+                if k not in data:
+                    data[k] = []
 
-            data[k].append(v)
+                data[k].append(v)
 
-    # For each of the datasets provided, get the metrics.
-    model = trainer.model
+        # For each of the datasets provided, get the metrics.
+        model = trainer.model
 
-    print("Calculating train metrics...")
-    results["train"]["metrics"] = per_class_dice_on_dataset(
-        model,
-        train_data,
-        label2id,
-        batch_size=batch_size,
-        device=device,
-        tile_size=tile_size,
-        tqdm_notebook=tqdm_notebook,
-    )
-
-    print("Calculating val metrics...")
-    results["val"]["metrics"] = per_class_dice_on_dataset(
-        model,
-        val_data,
-        label2id,
-        batch_size=batch_size,
-        device=device,
-        tile_size=tile_size,
-        tqdm_notebook=tqdm_notebook,
-    )
-
-    if test_data is not None:
-        print("Calculating test metrics...")
-        results["test"] = {}
-
-        results["test"]["metrics"] = per_class_dice_on_dataset(
+        print("Calculating train metrics...")
+        results["train"]["metrics"] = per_class_dice_on_dataset(
             model,
-            test_data,
+            train_data,
             label2id,
             batch_size=batch_size,
             device=device,
@@ -317,4 +309,29 @@ def train(
             tqdm_notebook=tqdm_notebook,
         )
 
-    return trainer, results
+        print("Calculating val metrics...")
+        results["val"]["metrics"] = per_class_dice_on_dataset(
+            model,
+            val_data,
+            label2id,
+            batch_size=batch_size,
+            device=device,
+            tile_size=tile_size,
+            tqdm_notebook=tqdm_notebook,
+        )
+
+        if test_data is not None:
+            print("Calculating test metrics...")
+            results["test"] = {}
+
+            results["test"]["metrics"] = per_class_dice_on_dataset(
+                model,
+                test_data,
+                label2id,
+                batch_size=batch_size,
+                device=device,
+                tile_size=tile_size,
+                tqdm_notebook=tqdm_notebook,
+            )
+
+        return trainer, results
