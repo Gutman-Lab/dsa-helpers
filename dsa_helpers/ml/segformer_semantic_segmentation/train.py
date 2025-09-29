@@ -6,6 +6,7 @@ from transformers import (
 )
 import numpy as np
 from pathlib import Path
+import tempfile, shutil
 
 import torch
 from torch import nn
@@ -144,6 +145,10 @@ def train(
             ignore_mismatched_sizes=True,
         ).to(device)
 
+    if rank != 0:
+        # Create temp directory for the model.
+        save_dir = tempfile.mkdtemp()
+
     # Training arguments.
     training_args = TrainingArguments(
         str(save_dir),
@@ -258,6 +263,9 @@ def train(
     if rank != 0:
         # Train the model.
         _ = trainer.train()
+
+        # Delete the temp directory.
+        shutil.rmtree(save_dir)
         return None
     else:
         print("Starting training...")
