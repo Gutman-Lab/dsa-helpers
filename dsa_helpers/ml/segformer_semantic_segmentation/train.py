@@ -266,7 +266,7 @@ def train(
 
         # Delete the temp directory.
         shutil.rmtree(save_dir)
-        return None
+        return trainer, None
     else:
         print("Starting training...")
         _ = trainer.train()
