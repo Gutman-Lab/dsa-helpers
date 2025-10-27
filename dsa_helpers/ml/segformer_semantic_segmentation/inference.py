@@ -1,19 +1,30 @@
 import torch
-from large_image_eager_iterator import LargeImagePrefetch
+import geopandas as gpd
+import pandas as pd
+import histomicstk as htk
+import numpy as np
 from transformers import (
     SegformerForSemanticSegmentation,
     SegformerImageProcessor,
 )
+from large_image_eager_iterator import LargeImagePrefetch
 from PIL import Image
+from time import perf_counter
 from large_image import getTileSource
-import geopandas as gpd
+from tqdm import tqdm
+from multiprocessing import Pool
+
+from shapely import make_valid
 from shapely.affinity import scale
-import pandas as pd
-import histomicstk as htk
-import numpy as np
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
 
 from ...image_utils import label_mask_to_polygons
-from ...gpd_utils import remove_gdf_overlaps
+from ...gpd_utils import (
+    remove_gdf_overlaps,
+    rdp_by_fraction_of_max_dimension,
+    make_multi_polygons,
+)
 
 stain_color_map = htk.preprocessing.color_deconvolution.stain_color_map
 
@@ -193,6 +204,7 @@ def inference(
 
     # Convert polygons and labels to a GeoDataFrame.
     gdf = gpd.GeoDataFrame(wsi_polygons, columns=["geometry", "label"])
+
     gdf["geometry"] = gdf["geometry"].buffer(1)
     gdf = gdf.dissolve(by="label", as_index=False)
     gdf = gdf.explode(index_parts=False).reset_index(drop=True)
@@ -229,3 +241,331 @@ def inference(
     )
 
     return no_overlap_gdf
+
+
+class SegFormerSSInferenceCleanup:
+    def __init__(
+        self,
+        gdf: gpd.GeoDataFrame,
+        label_ranks: list[int],
+        small_hole_thr: int = 50000,
+        buffer: int = 1,
+        fraction: float = 0.001,
+        nproc: int = 20,
+        interior_max_area: int = 100000,
+    ):
+        """Initiate the class for cleaning up the inference output.
+
+        Args:
+            gdf (geopandas.GeoDataFrame): Input inference output.
+            label_ranks (list[int]): List of labels, ordered by rank
+                with index 0 being the lowest rank.
+            small_hole_thr (int, optional): Threshold in area to
+                identify small objects. Defaults to 50000.
+            buffer (int, optional): Buffer to add to polygons before
+                dissolving. Defaults to 1.
+            fraction (float, optional): Fraction of the maximum
+                dimension to use for RDP. Defaults to 0.001.
+            nproc (int, optional): Number of processes to use for
+                parallel RDP. Defaults to 20.
+            interior_max_area (int, optional): Maximum area of a hole
+                to fill. Used when filling gaps created by RDP.
+                Defaults to 100000.
+
+        """
+        for i, r in gdf.iterrows():
+            label = r["label"]
+
+            if label not in label_ranks:
+                raise ValueError(f"Label {label} not in label_ranks.")
+            gdf.loc[i, "rank"] = label_ranks.index(r["label"])
+
+        self.__version__ = "1.0.0"
+        self.input_gdf = gdf
+        self.small_hole_thr = small_hole_thr
+        self.output_gdf = None
+        self.buffer = buffer
+        self.fraction = fraction
+        self.nproc = nproc
+        self.interior_max_area = interior_max_area
+        self.time = {}
+
+    def _make_gpd_valid(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        # Make the geometries valid in the gdf, keep only polygons.
+        gdf["geometry"] = gdf["geometry"].apply(make_valid)
+        gdf = gdf.explode(index_parts=False)
+        gdf = gdf[
+            (gdf["geometry"].geom_type == "Polygon")
+            & (gdf["geometry"].is_valid)
+        ]
+
+        return gdf.reset_index(drop=True)
+
+    def _remove_intersections(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        # Remove intersections between polygons.
+        gdf = gdf.reset_index(drop=True)
+        n = len(gdf)
+
+        if n in (0, 1):
+            return gdf
+
+        # Loop until the second to last row.
+        for i in tqdm(
+            range(n - 1), total=n - 1, desc="Removing intersections"
+        ):
+            r1 = gdf.iloc[i]
+
+            # Subtract the r1 geometry from all others.
+            for j in range(i + 1, n):
+                r2 = gdf.iloc[j]
+
+                # Subtract r1 from r2.
+                geom = r2["geometry"].difference(r1["geometry"])
+
+                gdf.loc[j, "geometry"] = geom
+
+        return self._make_gpd_valid(gdf)
+
+    def _remove_small_holes(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        gdf = gdf.reset_index(drop=True)
+
+        n = len(gdf)
+
+        for i in tqdm(range(n), total=n, desc="Removing small holes"):
+            geom = gdf.iloc[i]["geometry"]
+
+            exterior = geom.exterior
+            interiors = geom.interiors
+
+            new_interiors = []
+            for interior in interiors:
+                if Polygon(interior).area > self.small_hole_thr:
+                    new_interiors.append(interior)
+
+            geom = Polygon(exterior, new_interiors)
+
+            gdf.loc[i, "geometry"] = geom
+
+        return gdf
+
+    def _remove_small_contained_polygons(
+        self, gdf: gpd.GeoDataFrame
+    ) -> gpd.GeoDataFrame:
+        n = len(gdf)
+
+        i_removed = []
+
+        for i in tqdm(
+            range(n), total=n, desc="Removing small contained polygons"
+        ):
+            exterior = gdf.iloc[i]["geometry"].exterior
+
+            geom = Polygon(exterior)
+
+            if geom.area < self.small_hole_thr:
+                # Check if this is contained in another polygon.
+                contained = gdf[
+                    (gdf["geometry"].contains(geom)) & (gdf.index != i)
+                ]
+
+                if len(contained):
+                    i_removed.append(i)
+
+        gdf = gdf.drop(i_removed)
+
+        return gdf
+
+    def _remove_small_polygons_not_contained(
+        self, gdf: gpd.GeoDataFrame
+    ) -> gpd.GeoDataFrame:
+        gdf = gdf.reset_index(drop=True)
+        n = len(gdf)
+
+        i_removed = []
+
+        for i in tqdm(
+            range(n), total=n, desc="Removing small polygons not contained"
+        ):
+            geom = gdf.iloc[i]["geometry"]
+
+            if geom.geom_type == "MultiPolygon":
+                area = geom.area
+            else:
+                area = Polygon(geom.exterior).area
+
+            if area < self.small_hole_thr:
+                # Check for any touching polygons.
+                touching = gdf[
+                    (~gdf.index.isin(i_removed + [i]))
+                    & (gdf["geometry"].touches(geom))
+                ].copy()
+                if len(touching):
+                    touching["intersection_length"] = (
+                        touching["geometry"].intersection(geom).length
+                    )
+
+                    touching = touching.sort_values(
+                        by="intersection_length", ascending=False
+                    )
+
+                    r = touching.iloc[0]
+
+                    touching_geom = r["geometry"]
+
+                    # Merge the polygons.
+                    geom = geom.union(touching_geom)
+
+                    gdf.loc[r.name, "geometry"] = geom
+                    i_removed.append(i)
+                else:
+                    # Remove this polygon.
+                    i_removed.append(i)
+
+        gdf = gdf.drop(i_removed)
+        gdf = self._make_gpd_valid(gdf)
+        return gdf
+
+    def _rdp_polygon(self, geom, idx, fraction):
+        geom = rdp_by_fraction_of_max_dimension(geom, fraction=fraction)
+        return geom, idx
+
+    def _fill_rdp_gaps(
+        self, gdf: gpd.GeoDataFrame, interior_max_area: int = 100000
+    ) -> gpd.GeoDataFrame:
+        # Fill the gaps between polygons created by RDP.
+        gdf["area"] = gdf["geometry"].area
+
+        gdf_union = gdf["geometry"].union_all()
+
+        # Collect all the holes / interiors.
+        interiors = []
+
+        for geom in gdf_union.geoms:
+            for interior in geom.interiors:
+                interior = Polygon(interior)
+
+                if interior.area < interior_max_area:
+                    interiors.append(interior)
+
+        # Loop through each hole that was small.
+        for interior in tqdm(interiors, desc="Filling holes between polygons"):
+            # Check polygons that are touching this interior.
+            touching = gdf[gdf["geometry"].distance(interior) == 0]
+
+            unique_ranks = touching["rank"].unique()
+
+            if len(unique_ranks) > 1:
+                # Sort by rank then area.
+                touching = touching.sort_values(
+                    by=["rank", "area"], ascending=False
+                )
+
+                # Get the first row.
+                r = touching.iloc[0]
+
+                # Merge the hole with the polygon.
+                geom = unary_union([r["geometry"], interior])
+
+                if geom.geom_type == "MultiPolygon":
+                    # Buff the interior a bit.
+                    interior_buffed = interior.buffer(1)
+                    geom = unary_union([interior_buffed, geom])
+
+                    if geom.geom_type == "MultiPolygon":
+                        print(
+                            "MultiPolygon after buffering and union, discarding hole."
+                        )
+                        continue
+
+                gdf.loc[r.name, "geometry"] = geom
+                gdf.loc[r.name, "area"] = geom.area
+
+        return gdf
+
+    def cleanup(self):
+        """Pipeline for cleaning up the inference output."""
+        print("Running inference cleanup:\n")
+        time = self.time
+        gdf = self.input_gdf.copy()
+
+        print("[1/9] Applying buffer...")
+        start_time = perf_counter()
+        gdf["geometry"] = gdf["geometry"].buffer(self.buffer)
+        time["buffer"] = perf_counter() - start_time
+        gdf = self._make_gpd_valid(gdf)
+
+        print("[2/9] Dissolving...")
+        start_time = perf_counter()
+        gdf = gdf.dissolve(by="label", as_index=False)
+        time["dissolve"] = perf_counter() - start_time
+        gdf = gdf.explode(index_parts=False).reset_index(drop=True)
+        gdf = self._make_gpd_valid(gdf)
+
+        print("[3/9] Removing intersections...")
+        start_time = perf_counter()
+        gdf = make_multi_polygons(gdf, "label")
+        gdf = self._remove_intersections(gdf)
+        time["remove-intersections"] = perf_counter() - start_time
+
+        print("[4/9] Removing small holes...")
+        gdf = gdf.explode(index_parts=False).reset_index(drop=True)
+        gdf = self._make_gpd_valid(gdf)
+        start_time = perf_counter()
+        gdf = self._remove_small_holes(gdf)
+        time["remove-small-holes"] = perf_counter() - start_time
+
+        print("[5/9] Removing small polygons contained in other polygons...")
+        start_time = perf_counter()
+        gdf = self._remove_small_contained_polygons(gdf)
+        time["remove-small-contained-polygons"] = perf_counter() - start_time
+
+        print("[6/9] Removing small polygons not contained...")
+        start_time = perf_counter()
+        gdf = self._remove_small_polygons_not_contained(gdf)
+        time["remove-small-polygons-not-contained"] = (
+            perf_counter() - start_time
+        )
+
+        # Parallel RDP.
+        print("[7/9] Reducing points in polygons via RDP...")
+        start_time = perf_counter()
+        with Pool(processes=self.nproc) as pool:
+            jobs = [
+                pool.apply_async(
+                    func=self._rdp_polygon,
+                    args=(r["geometry"], i, self.fraction),
+                )
+                for i, r in gdf.iterrows()
+            ]
+
+            n = len(gdf)
+
+            for job in tqdm(jobs, total=n, desc="Reducing points in polygons"):
+                geom, idx = job.get()
+                gdf.loc[idx, "geometry"] = geom
+
+        time["rdp"] = perf_counter() - start_time
+
+        gdf = self._make_gpd_valid(gdf)
+
+        print("[8/9] Removing intersections again...")
+        start_time = perf_counter()
+        gdf = make_multi_polygons(gdf, "label")
+        gdf = self._remove_intersections(gdf)
+        time["remove-intersections-2"] = perf_counter() - start_time
+
+        gdf = gdf.explode(index_parts=False).reset_index(drop=True)
+        gdf = self._make_gpd_valid(gdf)
+
+        print("[9/9] Filling RDP gaps...")
+        start_time = perf_counter()
+        gdf = self._fill_rdp_gaps(gdf, self.interior_max_area)
+        time["fill-rdp-gaps"] = perf_counter() - start_time
+        gdf = self._make_gpd_valid(gdf)
+
+        self.output_gdf = gdf
+        self.time = time
+
+        total_time = sum(time.values())
+        print(f"\nTotal time: {total_time:.2f} seconds")
+        return gdf

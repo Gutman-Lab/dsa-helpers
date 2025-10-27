@@ -11,11 +11,93 @@ Functions:
 """
 
 import geopandas as gpd
-from shapely.geometry import Polygon
-from rasterio.features import rasterize
 import numpy as np
+from rasterio.features import rasterize
+from rdp import rdp
+from tqdm import tqdm
+
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
+
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+
+
+def make_multi_polygons(
+    gdf: gpd.GeoDataFrame, label_col: str
+) -> gpd.GeoDataFrame:
+    """Make the input GeoDataFrame polygons into multi-polygons, grouped
+    by the label column.
+
+    Args:
+        gdf (geopandas.GeoDataFrame): The input GeoDataFrame.
+        label_col (str): The column to group by.
+
+    Returns:
+        geopandas.GeoDataFrame: The output GeoDataFrame.
+
+    """
+    unique_labels = gdf[label_col].unique()
+
+    data = []
+
+    for label in tqdm(unique_labels, desc="Making multi-polygons"):
+        label_df = gdf[gdf[label_col] == label]
+
+        if len(label_df) == 1:
+            data.append(label_df.iloc[0].copy())
+        else:
+            r = label_df.iloc[0].copy()
+
+            geom = unary_union(label_df["geometry"].tolist())
+
+            r["geometry"] = geom
+
+            data.append(r)
+
+    gdf = gpd.GeoDataFrame(data).reset_index(drop=True)
+
+    return gdf
+
+
+def rdp_by_fraction_of_max_dimension(geom, fraction=0.001):
+    # First grab the exterior coordinates.
+    coords = np.array(geom.exterior.coords)[:, :2]
+
+    # Get the bounding box dimensions
+    bounds = geom.bounds  # (minx, miny, maxx, maxy)
+    width = bounds[2] - bounds[0]
+    height = bounds[3] - bounds[1]
+    max_dimension = max(width, height)
+
+    # Set epsilon as a small fraction of the max dimension
+    epsilon = max_dimension * fraction
+
+    # Run RDP on the exterior of the polygon.
+    mask = rdp(coords, algo="iter", return_mask=True, epsilon=epsilon)
+    exterior_coords = coords[mask]
+
+    # Run on the interior polygons if any.
+    interiors = []
+    if geom.interiors:
+        for interior in geom.interiors:
+            # Similary, calculate the epsilon for the interior.
+            bounds = interior.bounds
+            width = bounds[2] - bounds[0]
+            height = bounds[3] - bounds[1]
+            max_dimension = max(width, height)
+            epsilon = max_dimension * fraction
+
+            # Run RDP on the interior.
+            coords = np.array(interior.coords)[:, :2]
+            mask = rdp(coords, algo="iter", return_mask=True, epsilon=epsilon)
+            masked_coords = coords[mask]
+            interiors.append(masked_coords)
+
+    # Combine the exterior and interiors.
+    geom = Polygon(exterior_coords, interiors)
+
+    return geom
 
 
 def count_polygon_points(polygon: Polygon) -> int:
