@@ -42,6 +42,7 @@ W = np.array([stain_color_map[st] for st in stains]).T
 def inference(
     model: str | torch.nn.Module,
     wsi_fp: str,
+    label_ranks: list[int] | None = None,
     batch_size: int = 16,
     tile_size: int = 512,
     mag: float | None = None,
@@ -49,8 +50,11 @@ def inference(
     chunk_mult: int = 2,
     prefetch: int = 2,
     device: str | None = None,
-    tolerance: float | None = 2.0,
-    min_area: float = 1000,
+    small_hole_thr: int = 50000,
+    buffer: int = 1,
+    fraction: float = 0.001,
+    nproc: int = 20,
+    interior_max_area: int = 100000,
     hematoxylin_channel: bool = False,
 ) -> gpd.GeoDataFrame:
     """Inference using SegFormer semantic segmentation model on a WSI.
@@ -59,6 +63,10 @@ def inference(
         model (str | torch.nn.Module): Path to the model checkpoint or
             a pre-loaded model.
         wsi_fp (str): File path to the WSI.
+        label_ranks (list[int], optional): List of int labels (as
+            outputed by the model) ordered by rank with index 0 being
+            the lowest rank. If None, The labels will be ranked by
+            their int value.
         batch_size (int, optional): Batch size for inference. Defaults
             to 16.
         tile_size (int, optional): Tile size for inference. Defaults to
@@ -73,14 +81,16 @@ def inference(
             Defaults to 2.
         device (str, optional): Device for inference. Default is None,
             will use "gpu" if available, otherwise "cpu".
-        tolerance (float | None, optional): Tolerance for simplification
-            of the predicted polygons. Guidelines: 0.5 for mild
-            simplification, 1.0 for moderate, 2.0 for more aggressive.
-            If set to None or 0.0, the polygons will not be simplified.
-        min_area (float, optional): Minimum area of a polygon to be
-            simplified. This is added to avoid simplifying small
-            polygons that would probably lose too much information.
-            Defaults to 1000.
+        small_hole_thr (int, optional): Threshold in area to identify
+            small objects. Defaults to 50000.
+        buffer (int, optional): Buffer to add to polygons before
+            dissolving. Defaults to 1.
+        fraction (float, optional): Fraction of the maximum dimension
+            to use for RDP. Defaults to 0.001.
+        nproc (int, optional): Number of processes to use for parallel
+            RDP. Defaults to 20.
+        interior_max_area (int, optional): Maximum area of a hole to fill.
+            Used when filling gaps created by RDP. Defaults to 100000.
         hematoxylin_channel (bool, optional): Whether to use the
             hematoxylin channel when predicting the segmentation mask.
             Defaults to False.
@@ -117,6 +127,11 @@ def inference(
         )
 
     model.eval()
+
+    if label_ranks is None:
+        id2label = model.config.id2label
+        max_label = max([int(v) for v in id2label.keys()])
+        label_ranks = list(range(max_label + 1))
 
     # Iterate through batches.
     batch_n = 0
@@ -205,42 +220,19 @@ def inference(
     # Convert polygons and labels to a GeoDataFrame.
     gdf = gpd.GeoDataFrame(wsi_polygons, columns=["geometry", "label"])
 
-    gdf["geometry"] = gdf["geometry"].buffer(1)
-    gdf = gdf.dissolve(by="label", as_index=False)
-    gdf = gdf.explode(index_parts=False).reset_index(drop=True)
-
-    if tolerance:
-        # Add the area column.
-        gdf["area"] = gdf["geometry"].area
-
-        # Split the dataframe into those polygons that need to be simplified and those that do not.
-        gdf_to_simplify = gdf[gdf["area"] > min_area].reset_index(drop=True)
-        gdf_not_to_simplify = gdf[gdf["area"] <= min_area].reset_index(
-            drop=True
-        )
-
-        # Simplify the polygons that need to be simplified.
-        gdf_to_simplify["geometry"] = gdf_to_simplify["geometry"].simplify(
-            tolerance=tolerance, preserve_topology=True
-        )
-
-        # Concatenate the simplified polygons with the polygons that do not need to be simplified.
-        gdf = pd.concat(
-            [gdf_to_simplify, gdf_not_to_simplify], ignore_index=True
-        )
-
-    # Remove overlapping polygons.
-    no_overlap_gdf = remove_gdf_overlaps(
+    cleanup_pipe = SegFormerSSInferenceCleanup(
         gdf,
-        columns="label",
+        label_ranks,
+        small_hole_thr=small_hole_thr,
+        buffer=buffer,
+        fraction=fraction,
+        nproc=nproc,
+        interior_max_area=interior_max_area,
     )
 
-    # Scale the polygon to scan magnification.
-    no_overlap_gdf["geometry"] = no_overlap_gdf["geometry"].apply(
-        lambda geom: scale(geom, xfact=1 / sf, yfact=1 / sf, origin=(0, 0))
-    )
+    gdf = cleanup_pipe.cleanup()
 
-    return no_overlap_gdf
+    return gdf
 
 
 class SegFormerSSInferenceCleanup:
