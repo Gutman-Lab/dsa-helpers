@@ -1,18 +1,17 @@
 import torch
 import geopandas as gpd
-import pandas as pd
 import histomicstk as htk
 import numpy as np
-from transformers import (
-    SegformerForSemanticSegmentation,
-    SegformerImageProcessor,
-)
 from large_image_eager_iterator import LargeImagePrefetch
 from PIL import Image
 from time import perf_counter
 from large_image import getTileSource
 from tqdm import tqdm
 from multiprocessing import Pool
+from transformers import (
+    SegformerForSemanticSegmentation,
+    SegformerImageProcessor,
+)
 
 from shapely import make_valid
 from shapely.affinity import scale
@@ -20,11 +19,7 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 from ...image_utils import label_mask_to_polygons
-from ...gpd_utils import (
-    remove_gdf_overlaps,
-    rdp_by_fraction_of_max_dimension,
-    make_multi_polygons,
-)
+from ...gpd_utils import rdp_by_fraction_of_max_dimension, make_multi_polygons
 
 stain_color_map = htk.preprocessing.color_deconvolution.stain_color_map
 
@@ -219,6 +214,11 @@ def inference(
 
     # Convert polygons and labels to a GeoDataFrame.
     gdf = gpd.GeoDataFrame(wsi_polygons, columns=["geometry", "label"])
+
+    # Scale the geometries.
+    gdf["geometry"] = gdf["geometry"].apply(
+        lambda geom: scale(geom, xfact=1 / sf, yfact=1 / sf, origin=(0, 0))
+    )
 
     cleanup_pipe = SegFormerSSInferenceCleanup(
         gdf,
