@@ -215,6 +215,14 @@ def inference(
     # Convert polygons and labels to a GeoDataFrame.
     gdf = gpd.GeoDataFrame(wsi_polygons, columns=["geometry", "label"])
 
+    # Add a small buffer to the polygons to make polygons from adjacent tiles
+    # touch, this allows merging adjacent tile polygons when dissolving.
+    gdf["geometry"] = gdf["geometry"].buffer(1)
+
+    gdf = gdf.dissolve(by="label", as_index=False)
+
+    gdf = gdf.explode(index_parts=False).reset_index(drop=True)
+
     # Scale the geometries.
     gdf["geometry"] = gdf["geometry"].apply(
         lambda geom: scale(geom, xfact=1 / sf, yfact=1 / sf, origin=(0, 0))
@@ -272,7 +280,7 @@ class SegFormerSSInferenceCleanup:
                 raise ValueError(f"Label {label} not in label_ranks.")
             gdf.loc[i, "rank"] = label_ranks.index(r["label"])
 
-        self.__version__ = "1.0.0"
+        self.__version__ = "1.0.1"
         self.input_gdf = gdf
         self.small_hole_thr = small_hole_thr
         self.output_gdf = None
@@ -479,39 +487,27 @@ class SegFormerSSInferenceCleanup:
         print("Running inference cleanup:\n")
         time = self.time
         gdf = self.input_gdf.copy()
-
-        print("[1/9] Applying buffer...")
-        start_time = perf_counter()
-        gdf["geometry"] = gdf["geometry"].buffer(self.buffer)
-        time["buffer"] = perf_counter() - start_time
         gdf = self._make_gpd_valid(gdf)
 
-        print("[2/9] Dissolving...")
-        start_time = perf_counter()
-        gdf = gdf.dissolve(by="label", as_index=False)
-        time["dissolve"] = perf_counter() - start_time
-        gdf = gdf.explode(index_parts=False).reset_index(drop=True)
-        gdf = self._make_gpd_valid(gdf)
-
-        print("[3/9] Removing intersections...")
+        print("[1/7] Removing intersections...")
         start_time = perf_counter()
         gdf = make_multi_polygons(gdf, "label")
         gdf = self._remove_intersections(gdf)
         time["remove-intersections"] = perf_counter() - start_time
 
-        print("[4/9] Removing small holes...")
+        print("[2/7] Removing small holes...")
         gdf = gdf.explode(index_parts=False).reset_index(drop=True)
         gdf = self._make_gpd_valid(gdf)
         start_time = perf_counter()
         gdf = self._remove_small_holes(gdf)
         time["remove-small-holes"] = perf_counter() - start_time
 
-        print("[5/9] Removing small polygons contained in other polygons...")
+        print("[3/7] Removing small polygons contained in other polygons...")
         start_time = perf_counter()
         gdf = self._remove_small_contained_polygons(gdf)
         time["remove-small-contained-polygons"] = perf_counter() - start_time
 
-        print("[6/9] Removing small polygons not contained...")
+        print("[4/7] Removing small polygons not contained...")
         start_time = perf_counter()
         gdf = self._remove_small_polygons_not_contained(gdf)
         time["remove-small-polygons-not-contained"] = (
@@ -519,7 +515,7 @@ class SegFormerSSInferenceCleanup:
         )
 
         # Parallel RDP.
-        print("[7/9] Reducing points in polygons via RDP...")
+        print("[5/7] Reducing points in polygons via RDP...")
         start_time = perf_counter()
         with Pool(processes=self.nproc) as pool:
             jobs = [
@@ -540,7 +536,7 @@ class SegFormerSSInferenceCleanup:
 
         gdf = self._make_gpd_valid(gdf)
 
-        print("[8/9] Removing intersections again...")
+        print("[6/7] Removing intersections again...")
         start_time = perf_counter()
         gdf = make_multi_polygons(gdf, "label")
         gdf = self._remove_intersections(gdf)
@@ -549,7 +545,7 @@ class SegFormerSSInferenceCleanup:
         gdf = gdf.explode(index_parts=False).reset_index(drop=True)
         gdf = self._make_gpd_valid(gdf)
 
-        print("[9/9] Filling RDP gaps...")
+        print("[7/7] Filling RDP gaps...")
         start_time = perf_counter()
         gdf = self._fill_rdp_gaps(gdf, self.interior_max_area)
         time["fill-rdp-gaps"] = perf_counter() - start_time
