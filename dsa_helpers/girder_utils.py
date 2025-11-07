@@ -523,8 +523,7 @@ def get_roi_with_yolo_labels_from_single_doc(
 def post_annotations_from_gdf(
     gc: GirderClient,
     item_id: str,
-    model_id: str,
-    model_name: str,
+    add_attr: dict,
     doc_name: str,
     gdf: gpd.GeoDataFrame,
     idx_config: dict,
@@ -580,15 +579,18 @@ def post_annotations_from_gdf(
             "group": idx_config[label]["group"],
         }
 
+        add_params = {}
+
         if len(holes):
             element["holes"] = holes
 
         elements.append(element)
 
+
     response = gc.post(
         "/annotation",
-        parameters={"itemId": item_id, "modelId": model_id, "modelName": model_name},
-        json={"name": doc_name, "description": "", "elements": elements},
+        parameters={"itemId": item_id}, # "modelId": model_id, "modelName": model_name
+        json={"name": doc_name, "description": "", "elements": elements, **add_attr},
     )
 
     return response
