@@ -2,10 +2,9 @@ import torch
 import geopandas as gpd
 import histomicstk as htk
 import numpy as np
-from large_image_eager_iterator import LargeImagePrefetch
+import large_image_source_openslide
 from PIL import Image
 from time import perf_counter
-from large_image import getTileSource
 from tqdm import tqdm
 from multiprocessing import Pool
 from transformers import (
@@ -33,25 +32,30 @@ stains = [
 # create stain matrix
 W = np.array([stain_color_map[st] for st in stains]).T
 
+# The standard values are taken from Emory's 40x scanned images.
+STANDARD_MM_PER_PX = 0.0002519
+STANDARD_MAG = 40
+
 
 def inference(
     model: str | torch.nn.Module,
     wsi_fp: str,
     label_ranks: list[int] | None = None,
-    batch_size: int = 16,
+    batch_size: int = 64,
     tile_size: int = 512,
-    mag: float | None = None,
+    mag: float | None = 10.0,
+    mm_px: float | None = None,
     workers: int = 8,
     chunk_mult: int = 2,
     prefetch: int = 2,
     device: str | None = None,
     small_hole_thr: int = 50000,
-    buffer: int = 1,
+    buffer: int = 10,
     fraction: float = 0.001,
     nproc: int = 20,
     interior_max_area: int = 100000,
     hematoxylin_channel: bool = False,
-) -> gpd.GeoDataFrame:
+) -> tuple[gpd.GeoDataFrame, float, float]:
     """Inference using SegFormer semantic segmentation model on a WSI.
 
     Args:
@@ -63,11 +67,17 @@ def inference(
             the lowest rank. If None, The labels will be ranked by
             their int value.
         batch_size (int, optional): Batch size for inference. Defaults
-            to 16.
+            to 64.
         tile_size (int, optional): Tile size for inference. Defaults to
             512.
-        mag (float, optional): Magnification for inference. Defaults to
-            None, which will use the scan magnification of WSI.
+        mag (float, optional): Magnification to grab the tiles at for
+            inference. This is calculated from the mm_px from the WSI
+            metadata, converted to the standard mm_px to magnification
+            ratio at Emory. Defaults to 10.0.
+        mm_px (float, optional): Micrometers per pixel to grab the tiles
+            at for inference. If not provided, will be inferred from the
+            mag parameter, if that isn't provided it will use the scan
+            resolution of the WSI. Defaults to None.
         workers (int, optional): Number of workers for inference.
             Defaults to 8.
         chunk_mult (int, optional): Chunk multiplier for inference.
@@ -79,7 +89,7 @@ def inference(
         small_hole_thr (int, optional): Threshold in area to identify
             small objects. Defaults to 50000.
         buffer (int, optional): Buffer to add to polygons before
-            dissolving. Defaults to 1.
+            dissolving. Defaults to 10.
         fraction (float, optional): Fraction of the maximum dimension
             to use for RDP. Defaults to 0.001.
         nproc (int, optional): Number of processes to use for parallel
@@ -93,26 +103,50 @@ def inference(
     Returns:
         gpd.GeoDataFrame: A GeoDataFrame containing the predicted
             polygons and labels.
+        mag (float): The magnification used for inference.
+        mm_px (float): The micrometers per pixel used for inference.
 
     """
-    # Initiate the tile iterator.
-    iterator = LargeImagePrefetch(
-        wsi_fp,
-        batch=batch_size,
-        tile_size=(tile_size, tile_size),
-        scale_mode="mag",
-        target_scale=mag,
-        workers=workers,
+    # Get the tile source.
+    ts = large_image_source_openslide.open(wsi_fp)
+
+    ts_metadata = ts.getMetadata()
+
+    # Calculate the mm per pixel to use.
+    if mm_px is None and mag is None:
+        print(
+            "Using scan resolution, please note we use mm_x and assume mm_y is"
+            "the same."
+        )
+        mm_px = ts_metadata["mm_x"]
+
+        # Calculate what the standard magnification.
+        mag = STANDARD_MAG * STANDARD_MM_PER_PX / mm_px
+    elif mm_px is None:
+        # Calculate the mm per pixel.
+        mm_px = STANDARD_MAG * STANDARD_MM_PER_PX / mag
+    else:
+        # Calculate the magnification.
+        mag = STANDARD_MAG * STANDARD_MM_PER_PX / mm_px
+
+    # Scale factor, multiply to go from scan magnification to desired mag.
+    sf_x = ts_metadata["mm_x"] / mm_px
+    sf_y = ts_metadata["mm_y"] / mm_px
+
+    # Create eager iterator.
+    iterator = ts.eagerIterator(
+        scale={"mm_x": mm_px, "mm_y": mm_px},
+        tile_size={"width": tile_size, "height": tile_size},
         chunk_mult=chunk_mult,
+        batch=batch_size,
         prefetch=prefetch,
-        nchw=False,
-        icc=True,
+        workers=workers,
     )
 
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"Using device: {device}")
 
+    print(f"Using device: {device}")
     device = torch.device(device)
 
     # Load the model.
@@ -137,22 +171,11 @@ def inference(
     # Track all predicted polygons.
     wsi_polygons = []
 
-    # Scaling factor, multiply to go from scan magnification to desired mag.
-    ts_metadata = getTileSource(wsi_fp).getMetadata()
-    scan_mag = ts_metadata["magnification"]
-
-    if mag is None:
-        mag = scan_mag
-        sf = 1.0
-    else:
-        sf = mag / scan_mag
-
     for batch in iterator:
-        # Get the batch of images.
-        imgs = batch[0].view()  # returns a numpy array of shape (N, H, W, C)
-        coordinates = batch[1]
+        tiles = batch["tile"].view()  # images are in BCHW format
 
         if hematoxylin_channel:
+            # Deconvolve to get images of the hematoxylin channel.
             img_list = []
 
             for img in imgs:
@@ -164,10 +187,10 @@ def inference(
                 img = np.stack([img, img, img], axis=-1)
                 img_list.append(img)
 
-            imgs = img_list
+            tiles = img_list
 
         # Convert the numpy arrays to PIL images.
-        imgs = [Image.fromarray(img) for img in imgs]
+        imgs = [Image.fromarray(img) for img in tiles]
 
         # Pass the images through the processor.
         inputs = processor(imgs, return_tensors="pt")
@@ -188,17 +211,21 @@ def inference(
             # Get predicted class labels for each pixel.
             masks = torch.argmax(logits, dim=1).detach().cpu().numpy()
 
-        # Loop through each mask to extract the contours as shapely polygons.
+        # Top left corner of each tile, at scan magnification.
+        tile_x_coords = batch["gx"]
+        tile_y_coords = batch["gy"]
+
         for i, mask in enumerate(masks):
-            img_metadata = coordinates[i]
-            x, y = img_metadata[6], img_metadata[4]
-            x = int(x * sf)
-            y = int(y * sf)
+            x, y = tile_x_coords[i], tile_y_coords[i]
+
+            # Convert top left point to the desired magnification.
+            x_scaled = int(x * sf_x)
+            y_scaled = int(y * sf_y)
 
             polygon_and_labels = label_mask_to_polygons(
                 mask,
-                x_offset=x,
-                y_offset=y,
+                x_offset=x_scaled,
+                y_offset=y_scaled,
             )
 
             for polygon_and_label in polygon_and_labels:
@@ -217,7 +244,7 @@ def inference(
 
     # Add a small buffer to the polygons to make polygons from adjacent tiles
     # touch, this allows merging adjacent tile polygons when dissolving.
-    gdf["geometry"] = gdf["geometry"].buffer(1)
+    gdf["geometry"] = gdf["geometry"].buffer(buffer)
 
     gdf = gdf.dissolve(by="label", as_index=False)
 
@@ -225,14 +252,13 @@ def inference(
 
     # Scale the geometries.
     gdf["geometry"] = gdf["geometry"].apply(
-        lambda geom: scale(geom, xfact=1 / sf, yfact=1 / sf, origin=(0, 0))
+        lambda geom: scale(geom, xfact=1 / sf_x, yfact=1 / sf_y, origin=(0, 0))
     )
 
     cleanup_pipe = SegFormerSSInferenceCleanup(
         gdf,
         label_ranks,
         small_hole_thr=small_hole_thr,
-        buffer=buffer,
         fraction=fraction,
         nproc=nproc,
         interior_max_area=interior_max_area,
@@ -240,7 +266,7 @@ def inference(
 
     gdf = cleanup_pipe.cleanup()
 
-    return gdf
+    return gdf, mag, mm_px
 
 
 class SegFormerSSInferenceCleanup:
@@ -284,7 +310,6 @@ class SegFormerSSInferenceCleanup:
         self.input_gdf = gdf
         self.small_hole_thr = small_hole_thr
         self.output_gdf = None
-        self.buffer = buffer
         self.fraction = fraction
         self.nproc = nproc
         self.interior_max_area = interior_max_area

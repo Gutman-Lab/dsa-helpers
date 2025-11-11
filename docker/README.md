@@ -1,4 +1,2 @@
 # Docker
-A Dockerfile for building an image that has the dsa-helpers library with all the dependencies installed.
-
-This image is pushed to DockerHub here.
+dsa-helpers image hosted on jvizcar account. Subfolders found for each version of the image.

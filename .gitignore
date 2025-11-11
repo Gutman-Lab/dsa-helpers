@@ -10,3 +10,7 @@ dist/
 # Ignore data directory created for testing the package.
 tests/data/
 tests/models/
+
+temp*
+
+large_image-*.whl

@@ -24,7 +24,9 @@ dependencies = [
     "rasterio",
     "colorama",
     "albumentations",
-    "rdp"
+    "rdp",
+    "histomicstk",
+    "pykdtree"
 ]
 
 name = "dsa_helpers"
@@ -42,7 +44,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 keywords = ["dsa", "girder", "girder_client"]
-version = "v2.0.3"
+version = "v2.0.4"
 
 [project.optional-dependencies]
 opencv = ["opencv-python"]
