@@ -21,6 +21,8 @@ Functions:
   annotations.
 - semantic_segmentation_annotation_metrics: Calculate metrics for
   semantic segmentation annotations.
+- calculate_dice_from_annotations: Calculate the DICE score from two
+  annotation documents.
 
 """
 
@@ -33,7 +35,7 @@ import cv2 as cv
 from copy import deepcopy
 import geopandas as gpd
 from shapely.geometry import Polygon, box, LineString
-from .gpd_utils import remove_gdf_overlaps
+from .gpd_utils import remove_gdf_overlaps, make_gpd_valid
 
 
 def get_item_large_image_metadata(gc: GirderClient, item_id: str) -> dict:
@@ -586,11 +588,17 @@ def post_annotations_from_gdf(
 
         elements.append(element)
 
-
     response = gc.post(
         "/annotation",
-        parameters={"itemId": item_id}, # "modelId": model_id, "modelName": model_name
-        json={"name": doc_name, "description": "", "elements": elements, **add_attr},
+        parameters={
+            "itemId": item_id
+        },  # "modelId": model_id, "modelName": model_name
+        json={
+            "name": doc_name,
+            "description": "",
+            "elements": elements,
+            **add_attr,
+        },
     )
 
     return response
@@ -1128,3 +1136,97 @@ def semantic_segmentation_annotation_metrics(
     metrics["weighted_mean_dice"] = float(weighted_mean_dice)
 
     return metrics
+
+
+def calculate_dice_from_annotations(
+    gt_ann_doc: dict,
+    inf_ann_doc: dict,
+    groups: list[str] | None = None,
+    gt_uses_label: bool = False,
+    inf_uses_label: bool = False,
+) -> dict:
+    """
+    Calculate the DICE score between two annotation documents.
+
+    Args:
+        gt_ann_doc (dict): The ground truth annotation document, in
+            geojson format.
+        inf_ann_doc (dict): The inference annotation document, in
+            geojson format.
+        groups (list[str] | None, optional): The groups to calculate the
+            DICE score for. If None, all groups in both the ground truth
+            and inference will be used. Defaults to None.
+        gt_uses_label (bool, optional): Whether to use the label column
+            of the ground truth annotation document as the group.
+            Defaults to False.
+        inf_uses_label (bool, optional): Whether to use the label column
+            of the inference annotation document as the group.
+            Defaults to False.
+
+    Returns:
+        dict: A dictionary containing the DICE scores for each group.
+        float: The weighted mean DICE score, weighted by the amount of
+            area of each group in the ground truth.
+
+    """
+    gt_gdf = gpd.GeoDataFrame.from_features(gt_ann_doc["features"])
+    inf_gdf = gpd.GeoDataFrame.from_features(inf_ann_doc["features"])
+
+    if gt_uses_label:
+        gt_gdf["group"] = gt_gdf["label"].apply(
+            lambda x: x.get("value", "") if isinstance(x, dict) else x
+        )
+    if inf_uses_label:
+        inf_gdf["group"] = inf_gdf["label"].apply(
+            lambda x: x.get("value", "") if isinstance(x, dict) else x
+        )
+
+    if groups is None:
+        # Groups will be the set of all groups in the ground truth and inference.
+        groups = list(
+            set(gt_gdf["group"].unique()) | set(inf_gdf["group"].unique())
+        )
+
+    gt_gdf = make_gpd_valid(gt_gdf)
+    inf_gdf = make_gpd_valid(inf_gdf)
+
+    # Turns the gdfs into a single row per group, as multipolygons as needed.
+    gt_gdf = gt_gdf.dissolve(by="group", as_index=False)
+    inf_gdf = inf_gdf.dissolve(by="group", as_index=False)
+
+    # Iterate through each group.
+    dice_scores = []
+    class_weights = []
+
+    for group in groups:
+        gt_gdf_group = gt_gdf[gt_gdf["group"] == group]["geometry"]
+        inf_gdf_group = inf_gdf[inf_gdf["group"] == group]["geometry"]
+
+        if len(gt_gdf_group) == 0 or len(inf_gdf_group) == 0:
+            intersection = 0
+        else:
+            intersection = gt_gdf_group.intersection(inf_gdf_group).area.sum()
+
+        gt_area = gt_gdf_group.area.sum()
+        class_weights.append(gt_area)
+
+        sum_of_areas = gt_area + inf_gdf_group.area.sum()
+
+        if sum_of_areas:
+            dice_scores.append(float(2 * intersection / sum_of_areas))
+        else:
+            dice_scores.append(1)
+
+    dice_scores = np.array(dice_scores)
+    class_weights = np.array(class_weights)
+
+    # Calculate the weighted mean of the dice scores.
+    weighted_mean_dice = np.sum(dice_scores * class_weights) / np.sum(
+        class_weights
+    )
+
+    dice_scores = {
+        group: float(score) for group, score in zip(groups, dice_scores)
+    }
+
+    return dice_scores, float(weighted_mean_dice)

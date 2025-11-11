@@ -7,6 +7,7 @@ Functions:
 - plot_gdf: Create a figure from a geopandas dataframe.
 - remove_gdf_overlaps: Remove overlaps from a GeoDataFrame.
 - draw_gdf_on_array: Draw a GeoDataFrame on an array.
+- make_gpd_valid: Make a GeoDataFrame valid, keep only polygons.
 
 """
 
@@ -16,6 +17,7 @@ from rasterio.features import rasterize
 from rdp import rdp
 from tqdm import tqdm
 
+from shapely import make_valid
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
@@ -303,3 +305,22 @@ def draw_gdf_on_array(gdf, shape, id_column="idx", default_value: int = 0):
         array = np.where(burned > 0, burned, array)
 
     return array
+
+
+def make_gpd_valid(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Make a GeoDataFrame valid, keep only polygons.
+    
+    Args:
+        gdf (geopandas.GeoDataFrame): The GeoDataFrame to make valid.
+
+    Returns:
+        geopandas.GeoDataFrame: The GeoDataFrame with valid geometries.
+    
+    """
+    gdf["geometry"] = gdf["geometry"].apply(make_valid)
+    gdf = gdf.explode(index_parts=False)
+    gdf = gdf[
+        (gdf["geometry"].geom_type == "Polygon") & (gdf["geometry"].is_valid)
+    ]
+
+    return gdf.reset_index(drop=True)
