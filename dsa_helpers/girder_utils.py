@@ -597,7 +597,8 @@ def post_annotations_from_gdf(
             "name": doc_name,
             "description": "",
             "elements": elements,
-            **add_attr,
+            "attributes": add_attr,
+            # **add_attr,
         },
     )
 
