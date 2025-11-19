@@ -7,7 +7,6 @@ from PIL import Image
 from time import perf_counter
 from tqdm import tqdm
 from multiprocessing import Pool
-from dataclasses import dataclass
 from transformers import (
     SegformerForSemanticSegmentation,
     SegformerImageProcessor,
@@ -39,15 +38,6 @@ STANDARD_MM_PER_PX = 0.0002519
 STANDARD_MAG = 40
 
 
-@dataclass
-class SegFormerSSInferenceResult(InferenceResult):
-    """Result class for SegFormer semantic segmentation inference."""
-
-    gdf: gpd.GeoDataFrame
-    mag: float
-    mm_px: float
-
-
 def inference(
     model: str | torch.nn.Module,
     wsi_fp: str,
@@ -66,7 +56,7 @@ def inference(
     nproc: int = 20,
     interior_max_area: int = 100000,
     hematoxylin_channel: bool = False,
-) -> SegFormerSSInferenceResult:
+) -> InferenceResult:
     """Inference using SegFormer semantic segmentation model on a WSI.
 
     Args:
@@ -179,7 +169,7 @@ def inference(
     # Track all predicted polygons.
     wsi_polygons = []
 
-    output = SegFormerSSInferenceResult()
+    results = InferenceResult()
 
     start_time = perf_counter()
 
@@ -251,7 +241,7 @@ def inference(
         print(f"\r    Processed batch {batch_n}.    ", end="")
     print()
 
-    output.add_time("inference", perf_counter() - start_time)
+    results.add_time("inference", perf_counter() - start_time)
 
     # Convert polygons and labels to a GeoDataFrame.
     gdf = gpd.GeoDataFrame(wsi_polygons, columns=["geometry", "label"])
@@ -260,12 +250,12 @@ def inference(
     # touch, this allows merging adjacent tile polygons when dissolving.
     start_time = perf_counter()
     gdf["geometry"] = gdf["geometry"].buffer(buffer)
-    output.add_time("buffer", perf_counter() - start_time)
+    results.add_time("buffer", perf_counter() - start_time)
 
     start_time = perf_counter()
     gdf = gdf.dissolve(by="label", as_index=False)
     gdf = gdf.explode(index_parts=False).reset_index(drop=True)
-    output.add_time("dissolve", perf_counter() - start_time)
+    results.add_time("dissolve", perf_counter() - start_time)
 
     # Scale the geometries.
     gdf["geometry"] = gdf["geometry"].apply(
@@ -284,13 +274,13 @@ def inference(
     gdf = cleanup_pipe.cleanup()
 
     for section_name, time in cleanup_pipe.time.items():
-        output.add_time(section_name, time)
+        results.add_time(section_name, time)
 
-    output.gdf = gdf
-    output.mag = mag
-    output.mm_px = mm_px
+    results.add_field("gdf", gdf)
+    results.add_field("mag", mag)
+    results.add_field("mm_px", mm_px)
 
-    return output
+    return results
 
 
 class SegFormerSSInferenceCleanup:

@@ -3,7 +3,7 @@ from .imread import imread
 from .imwrite import imwrite
 
 # Version of the dsa-helpers package
-__version__ = "2.0.8"
+__version__ = "2.0.9"
 
 # To avoid slow downs, do not allow from dsa_helpers import * to import anything.
 __all__ = []
