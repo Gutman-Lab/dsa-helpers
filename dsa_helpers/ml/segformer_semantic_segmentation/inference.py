@@ -20,7 +20,7 @@ from shapely.ops import unary_union
 
 from ...image_utils import label_mask_to_polygons
 from ...gpd_utils import rdp_by_fraction_of_max_dimension, make_multi_polygons
-from ..ml.inference_results import InferenceResult
+from ..inference_results import InferenceResult
 
 stain_color_map = htk.preprocessing.color_deconvolution.stain_color_map
 
