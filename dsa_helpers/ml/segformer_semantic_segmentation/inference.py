@@ -7,6 +7,7 @@ from PIL import Image
 from time import perf_counter
 from tqdm import tqdm
 from multiprocessing import Pool
+from dataclasses import dataclass
 from transformers import (
     SegformerForSemanticSegmentation,
     SegformerImageProcessor,
@@ -19,6 +20,7 @@ from shapely.ops import unary_union
 
 from ...image_utils import label_mask_to_polygons
 from ...gpd_utils import rdp_by_fraction_of_max_dimension, make_multi_polygons
+from ..ml.inference_results import InferenceResult
 
 stain_color_map = htk.preprocessing.color_deconvolution.stain_color_map
 
@@ -35,6 +37,15 @@ W = np.array([stain_color_map[st] for st in stains]).T
 # The standard values are taken from Emory's 40x scanned images.
 STANDARD_MM_PER_PX = 0.0002519
 STANDARD_MAG = 40
+
+
+@dataclass
+class SegFormerSSInferenceResult(InferenceResult):
+    """Result class for SegFormer semantic segmentation inference."""
+
+    gdf: gpd.GeoDataFrame
+    mag: float
+    mm_px: float
 
 
 def inference(
@@ -55,7 +66,7 @@ def inference(
     nproc: int = 20,
     interior_max_area: int = 100000,
     hematoxylin_channel: bool = False,
-) -> tuple[gpd.GeoDataFrame, float, float]:
+) -> SegFormerSSInferenceResult:
     """Inference using SegFormer semantic segmentation model on a WSI.
 
     Args:
@@ -101,10 +112,7 @@ def inference(
             Defaults to False.
 
     Returns:
-        gpd.GeoDataFrame: A GeoDataFrame containing the predicted
-            polygons and labels.
-        mag (float): The magnification used for inference.
-        mm_px (float): The micrometers per pixel used for inference.
+        SegFormerSSInferenceResult: Result object containing the inference output.
 
     """
     # Get the tile source.
@@ -170,6 +178,10 @@ def inference(
 
     # Track all predicted polygons.
     wsi_polygons = []
+
+    output = SegFormerSSInferenceResult()
+
+    start_time = perf_counter()
 
     for batch in iterator:
         tiles = batch["tile"].view()  # images are in BCHW format
@@ -239,16 +251,21 @@ def inference(
         print(f"\r    Processed batch {batch_n}.    ", end="")
     print()
 
+    output.add_time("inference", perf_counter() - start_time)
+
     # Convert polygons and labels to a GeoDataFrame.
     gdf = gpd.GeoDataFrame(wsi_polygons, columns=["geometry", "label"])
 
     # Add a small buffer to the polygons to make polygons from adjacent tiles
     # touch, this allows merging adjacent tile polygons when dissolving.
+    start_time = perf_counter()
     gdf["geometry"] = gdf["geometry"].buffer(buffer)
+    output.add_time("buffer", perf_counter() - start_time)
 
+    start_time = perf_counter()
     gdf = gdf.dissolve(by="label", as_index=False)
-
     gdf = gdf.explode(index_parts=False).reset_index(drop=True)
+    output.add_time("dissolve", perf_counter() - start_time)
 
     # Scale the geometries.
     gdf["geometry"] = gdf["geometry"].apply(
@@ -266,7 +283,14 @@ def inference(
 
     gdf = cleanup_pipe.cleanup()
 
-    return gdf, mag, mm_px
+    for section_name, time in cleanup_pipe.time.items():
+        output.add_time(section_name, time)
+
+    output.gdf = gdf
+    output.mag = mag
+    output.mm_px = mm_px
+
+    return output
 
 
 class SegFormerSSInferenceCleanup:
