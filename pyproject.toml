@@ -44,7 +44,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 keywords = ["dsa", "girder", "girder_client"]
-version = "v2.0.9"
+version = "v2.1.0"
 
 [project.optional-dependencies]
 opencv = ["opencv-python"]

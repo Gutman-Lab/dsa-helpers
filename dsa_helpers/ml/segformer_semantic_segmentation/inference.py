@@ -320,7 +320,7 @@ class SegFormerSSInferenceCleanup:
                 raise ValueError(f"Label {label} not in label_ranks.")
             gdf.loc[i, "rank"] = label_ranks.index(r["label"])
 
-        self.__version__ = "1.0.1"
+        self.__version__ = "1.0.2"
         self.input_gdf = gdf
         self.small_hole_thr = small_hole_thr
         self.output_gdf = None
@@ -474,17 +474,28 @@ class SegFormerSSInferenceCleanup:
         # Fill the gaps between polygons created by RDP.
         gdf["area"] = gdf["geometry"].area
 
-        gdf_union = gdf["geometry"].union_all()
+        union_geom = gdf["geometry"].union_all()
 
-        # Collect all the holes / interiors.
         interiors = []
 
-        for geom in gdf_union.geoms:
-            for interior in geom.interiors:
+        if union_geom.geom_type == "MultiPolygon":
+            # Collect all the holes / interiors.
+            for geom in union_geom.geoms:
+                for interior in geom.interiors:
+                    interior = Polygon(interior)
+
+                    if interior.area < interior_max_area:
+                        interiors.append(interior)
+        elif union_geom.geom_type == "Polygon":
+            for interior in union_geom.interiors:
                 interior = Polygon(interior)
 
                 if interior.area < interior_max_area:
                     interiors.append(interior)
+        else:
+            raise ValueError(
+                f"Unexpected geometry type: {union_geom.geom_type}"
+            )
 
         # Loop through each hole that was small.
         for interior in tqdm(interiors, desc="Filling holes between polygons"):
