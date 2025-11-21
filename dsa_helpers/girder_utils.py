@@ -37,6 +37,9 @@ import geopandas as gpd
 from shapely.geometry import Polygon, box, LineString
 from .gpd_utils import remove_gdf_overlaps, make_gpd_valid
 
+STANDARD_MM_PER_PX = 0.0002519
+STANDARD_MAG = 40
+
 
 def get_item_large_image_metadata(gc: GirderClient, item_id: str) -> dict:
     """Get large image metadata for an item.
@@ -1231,3 +1234,37 @@ def calculate_dice_from_annotations(
     }
 
     return dice_scores, float(weighted_mean_dice)
+
+
+def get_mag_and_mm_px(
+    ts_metadata: dict, mag: float | None = None, mm_px: float | None = None
+) -> tuple[float, float]:
+    """Get the magnification and micrometers per pixel from the tile source metadata.
+
+    Args:
+        ts_metadata: Metadata from the tile source.
+
+    """
+    # Calculate the mm per pixel to use.
+    if mm_px is None and mag is None:
+        print("mm_px and mag were not specified, using scan resolution.")
+        mag_x = STANDARD_MAG * STANDARD_MM_PER_PX / ts_metadata["mm_x"]
+        mag_y = STANDARD_MAG * STANDARD_MM_PER_PX / ts_metadata["mm_y"]
+        mm_x = ts_metadata["mm_x"]
+        mm_y = ts_metadata["mm_y"]
+    elif mm_px is None:
+        # Calculate the mm per pixel.
+        mm_x = STANDARD_MAG * STANDARD_MM_PER_PX / mag
+        mm_y = mm_x
+        mag_x = mag_y = mag
+    else:
+        # Calculate the magnification.
+        mag_x = STANDARD_MAG * STANDARD_MM_PER_PX / mm_px
+        mag_y = mag_x
+        mm_x = mm_y = mm_px
+
+    # Scale factor, multiply to go from scan magnification to desired mag.
+    sf_x = ts_metadata["mm_x"] / mm_x
+    sf_y = ts_metadata["mm_y"] / mm_y
+
+    return (mag_x, mag_y), (mm_x, mm_y), (sf_x, sf_y)

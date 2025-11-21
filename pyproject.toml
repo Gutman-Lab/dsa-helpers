@@ -17,13 +17,8 @@ dependencies = [
     'dash-bootstrap-components',
     'shapely',
     'geopandas',
-    "transformers[torch]",
-    "datasets",
-    "torchvision",
-    "large-image",
     "rasterio",
     "colorama",
-    "albumentations",
     "rdp",
     "histomicstk",
     "pykdtree"
@@ -44,12 +39,26 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 keywords = ["dsa", "girder", "girder_client"]
-version = "v2.1.0"
+version = "v3.0.1"
 
 [project.optional-dependencies]
 opencv = ["opencv-python"]
 opencv-headless = ["opencv-python-headless"]
-all = ["opencv-python"]  # Default to full opencv if user installs [all]
+ultrayltics = ["ultrayltics"]
+segformer = [
+    "transformers[torch]",
+    "datasets",
+    "torchvision",
+    "albumentations"
+]
+all = [
+    "opencv-python-headless",
+    "ultrayltics",
+    "transformers[torch]",
+    "datasets",
+    "torchvision",
+    "albumentations"
+]  
 
 [project.urls]
 Repository = "https://github.com/Gutman-Lab/dsa-python-utils"

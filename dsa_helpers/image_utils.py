@@ -15,9 +15,48 @@ Note:
 import numpy as np
 import cv2 as cv
 from .imread import imread
-
+from pathlib import Path
 from shapely.affinity import translate
 from shapely.geometry import Polygon
+
+
+def draw_yolo_label_on_img(
+    img_fp: str, label_fp: str, id2color: dict[int, tuple[int, int, int]]
+) -> np.ndarray:
+    """Draw the YOLO label on the image.
+
+    Args:
+        img_fp (str): Filepath to the image.
+        label_fp (str): Filepath to the YOLO label.
+        id2color (dict[int, tuple[int, int, int]]): Dictionary mapping
+            label IDs to RGB colors.
+
+    Returns:
+        np.ndarray: The image with the YOLO labels drawn on it.
+
+    """
+    img = imread(img_fp)
+    h, w = img.shape[:2]
+
+    if Path(label_fp).is_file():
+        with open(label_fp, "r") as f:
+            labels = f.readlines()
+
+        for label in labels:
+            label_id, cx, cy, width, height = label.strip().split()
+
+            # Get the coordinates in xyxy format.
+            x1 = int((float(cx) - float(width) / 2) * w)
+            y1 = int((float(cy) - float(height) / 2) * h)
+            x2 = int((float(cx) + float(width) / 2) * w)
+            y2 = int((float(cy) + float(height) / 2) * h)
+
+            color = id2color[int(label_id)]
+
+            # Draw on the image.
+            img = cv.rectangle(img, (x1, y1), (x2, y2), color, 2)
+
+    return img
 
 
 def label_mask_to_polygons(
