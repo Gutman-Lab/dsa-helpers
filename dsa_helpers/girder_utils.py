@@ -592,7 +592,7 @@ def post_annotations_from_gdf(
         elements.append(element)
 
     response = gc.post(
-        "/annotation",
+        "annotation",
         parameters={
             "itemId": item_id
         },  # "modelId": model_id, "modelName": model_name
