@@ -567,6 +567,7 @@ class SegFormerSSInferenceCleanup:
         # Parallel RDP.
         print("[5/7] Reducing points in polygons via RDP...")
         start_time = perf_counter()
+
         with Pool(processes=self.nproc) as pool:
             jobs = [
                 pool.apply_async(
@@ -577,10 +578,25 @@ class SegFormerSSInferenceCleanup:
             ]
 
             n = len(gdf)
+            completed = 0
 
-            for job in tqdm(jobs, total=n, desc="Reducing points in polygons"):
-                geom, idx = job.get()
-                gdf.loc[idx, "geometry"] = geom
+            # Process jobs as they become ready
+            with tqdm(total=n, desc="Reducing points in polygons") as pbar:
+                while completed < n:
+                    for job in jobs:
+                        if job.ready():
+                            geom, idx = job.get()
+                            gdf.loc[idx, "geometry"] = geom
+                            completed += 1
+                            pbar.update(1)
+                            # Remove completed job from list to avoid checking it again
+                            jobs.remove(job)
+                            break
+                    else:
+                        # Small sleep to avoid busy waiting
+                        import time
+
+                        time.sleep(0.01)
 
         time["rdp"] = perf_counter() - start_time
 
