@@ -4,7 +4,7 @@ import histomicstk as htk
 import numpy as np
 import large_image_source_openslide
 from PIL import Image
-from time import perf_counter
+from time import perf_counter, sleep
 from tqdm import tqdm
 from multiprocessing import Pool
 from transformers import (
@@ -594,9 +594,7 @@ class SegFormerSSInferenceCleanup:
                             break
                     else:
                         # Small sleep to avoid busy waiting
-                        import time
-
-                        time.sleep(0.01)
+                        sleep(0.01)
 
         time["rdp"] = perf_counter() - start_time
 
