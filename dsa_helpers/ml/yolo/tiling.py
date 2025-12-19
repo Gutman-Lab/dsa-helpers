@@ -1,243 +1,278 @@
 """Tiling function for use in YOLO object detection from Ultrayltics"""
 
-import large_image_source_openslide
-import large_image
+import large_image, large_image_source_openslide
 import geopandas as gpd
 import cv2 as cv
 import pandas as pd
 from pathlib import Path
 from tqdm import tqdm
-from shapely.geometry import Polygon
 
-from ...girder_utils import get_mag_and_mm_px
+from shapely import force_2d
+from shapely.geometry import Polygon
+from shapely.affinity import translate, scale
+
+from ...utils import return_mag_and_resolution
 from ... import imwrite
 
 
-def tile_wsi_with_dsa_annotations(
+def tile_wsi_for_yolo(
     wsi_fp: str,
+    geojson_doc: dict,
+    roi_labels: str | list[str],
+    box_labels: list[str],
     save_dir: str,
-    geojson_ann_doc: dict,
-    roi_classes: str | list[str],
-    object_label2id: dict[str, int],
-    mag: float | None = None,
-    mm_px: float | None = None,
+    magnification: int = 20,
     tile_size: int = 1280,
     stride: int | None = 960,
+    tile_area_threshold: float = 0.25,
     pad_rgb: tuple[int, int, int] = (114, 114, 114),
-    obj_area_thr: float = 0.5,
-) -> tuple[pd.DataFrame, tuple[float, float], tuple[float, float]]:
-    """Tile a WSI with DSA annotations used to generate the label text
-    files needed for YOLO object detection from Ultrayltics.
+    box_area_threshold: float = 0.5,
+) -> pd.DataFrame:
+    """Tile WSI for YOLO model training in the Ultralytics format.
 
     Args:
-        wsi_fp (str): Filepath to the WSI.
-        save_dir (str): Directory to save the tiles images and labels.
-        geojson_ann_doc (dict): DSA annotation document in geojson
-            format.
-        roi_classes (str | list[str]): Classes of ROIs to tile.
-        object_label2id (dict[str, int]): Dictionary mapping object
-            labels to IDs.
-        mag (float | None): Magnification to tile at. Will be converted
-            to mm_px appropriate for Emory scanners.
-        mm_px (float | None): Micrometers per pixel to use. If neither
-            this or mag is specified, the scan resolution will be used.
-        tile_size (int | None): Size of the tiles.
-        stride (int | None): Stride to tile. If None it will be set to
-            the tile size (no overlap between tiles).
+        wsi_fp (str): File path to the WSI.
+        geojson_doc (dict): DSA annotation document in GeoJSON format.
+        roi_labels (str | list[str]): Label(s) of the ROI annotations.
+            For now only rectangular ROIs with no rotation are supported,
+            others are ignored.
+        box_labels (list[str]): Labels of the object bounding box
+            annotations. The integer labels are determined by the order
+            of the labels on the list. Note that again only rectangular
+            boxes with no rotation are supported, others are ignored.
+        save_dir (str): Directory to save the tiles and labels to.
+        magnification (int, optional): Magnification to get tiles at.
+            Defaults to 20.
+        tile_size (int, optional): Size of the tiles to use. Defaults to
+            1280.
+        stride (int | None, optional): Stride to use for the tiles. If
+            None, the stride is set to the tile size. Defaults to 960.
+        tile_area_threshold (float, optional): Fraction of tile that
+            must be in the ROI to be included. If the fraction is less
+            than this value than it is ignored. Defaults to 0.25.
+        pad_rgb (tuple[int, int, int], optional): RGB values to pad the
+            tile with if it is smaller than the tile size. Defaults to
+            (114, 114, 114).
+        box_area_threshold (float, optional): Fraction of box that must
+            be in the tile to be included. If the fraction is less than
+            this value than it is ignored. Defaults to 0.5.
 
     Returns:
-        tuple[pd.DataFrame, tuple[float, float], tuple[float, float]]: A tuple
-            containing a DataFrame with the tile metadata. All coordinates
-            are relative to the scan resolution.
-            - image_fp (str): Filepath to the tile image.
-            - label_fp (str): Filepath to the tile label.
-            - roi_x1 (int): X coordinate of the top left corner of the ROI.
-            - roi_y1 (int): Y coordinate of the top left corner of the ROI.
-            - roi_x2 (int): X coordinate of the bottom right corner of the ROI.
-            - roi_y2 (int): Y coordinate of the bottom right corner of the ROI.
-            - tile_x1 (int): X coordinate of the top left corner of the tile.
-            - tile_y1 (int): Y coordinate of the top left corner of the tile.
-            - tile_x2 (int): X coordinate of the bottom right corner of the tile.
-            - tile_y2 (int): Y coordinate of the bottom right corner of the tile.
-            and the magnification and micrometers per pixel used in each
-            axis (x, y).
+        pandas.DataFrame: DataFrame with the tile metadata.
 
     """
-    if isinstance(roi_classes, str):
-        roi_classes = [roi_classes]
+    assert len(box_labels) == len(
+        set(box_labels)
+    ), "Box labels must be unique."
+
+    if isinstance(roi_labels, str):
+        roi_labels = [roi_labels]
+
+    # Make the labels strings.
+    roi_labels = [str(label) for label in roi_labels]
+    box_labels = [str(label) for label in box_labels]
+
+    save_dir_path = Path(save_dir)
+    img_dir = save_dir_path / "images"
+    img_dir.mkdir(parents=True, exist_ok=True)
+    label_dir = save_dir_path / "labels"
+    label_dir.mkdir(parents=True, exist_ok=True)
+
+    gdf = gpd.GeoDataFrame.from_features(geojson_doc["features"])
+
+    # Convert the label column, which is a dict to use the value as cell value.
+    gdf["label"] = gdf["label"].apply(lambda x: x["value"])
+
+    gdf = gdf[(gdf["rotation"] == 0) & (gdf["type"] == "rectangle")]
+
+    # Make the geometries 2D.
+    gdf["geometry"] = gdf["geometry"].apply(force_2d)
+
+    roi_gdf = gdf[gdf["label"].isin(roi_labels)].reset_index(drop=True)
+    box_gdf = gdf[gdf["label"].isin(box_labels)].reset_index(drop=True)
+
+    # Get the large image tile source.
+    ts = large_image_source_openslide.open(wsi_fp)
+    wsi_name = Path(wsi_fp).stem
 
     if stride is None:
         stride = tile_size
 
-    assert stride > 0, "Stride must be greater than 0."
+    magnification, mm_px = return_mag_and_resolution(mag=magnification)
 
-    gdf = gpd.GeoDataFrame.from_features(geojson_ann_doc["features"])
-
-    # Remove any geometries that are not rectangles or have a rotation.
-    gdf = gdf[(gdf["type"] == "rectangle") & (gdf["rotation"] == 0)]
-
-    # Convert the label column to use the value of its dictionary.
-    gdf["label"] = gdf["label"].apply(lambda x: x["value"])
-
-    # Filter to ROI gdf and object ones.
-    roi_gdf = gdf[gdf["label"].isin(roi_classes)].reset_index(drop=True)
-    object_gdf = gdf[gdf["label"].isin(object_label2id.keys())].reset_index(
-        drop=True
-    )
-    object_gdf["area"] = object_gdf.geometry.area
-
-    ts = large_image_source_openslide.open(wsi_fp)
+    # Calculate the scale factor on each axis.
+    # Calculating a multirplicative factor for going from scan mag to desired mag.
+    # With mm_px, higher values are more zoomed in, so we reverse the division.
     ts_metadata = ts.getMetadata()
+    sf_x = ts_metadata["mm_x"] / mm_px
+    sf_y = ts_metadata["mm_y"] / mm_px
 
-    mag, mm_px, sf = get_mag_and_mm_px(ts_metadata, mag, mm_px)
+    metadata = []
 
-    # Calculate the tile size and stride at scan magnification.
-    scan_tile_size = (int(tile_size / sf[0]), int(tile_size / sf[1]))
-    scan_stride = (int(stride / sf[0]), int(stride / sf[1]))
-
-    wsi_name = Path(wsi_fp).stem
-    save_dir = Path(save_dir)
-    img_dir = save_dir / "images"
-    label_dir = save_dir / "labels"
-    img_dir.mkdir(parents=True, exist_ok=True)
-    label_dir.mkdir(exist_ok=True)
+    n_rois = len(roi_gdf)
 
     # Loop through each ROI.
-    tile_metadata = []
+    for i, roi_row in roi_gdf.iterrows():
+        print(f"Processing ROI {i+1} of {n_rois}...")
+        # Get the bounds of the ROI.
+        roi_x1, roi_y1, roi_x2, roi_y2 = roi_row["geometry"].bounds
+        roi_x1, roi_y1 = int(roi_x1), int(roi_y1)
+        roi_x2, roi_y2 = int(roi_x2), int(roi_y2)
 
-    for i, roi in tqdm(
-        roi_gdf.iterrows(), total=len(roi_gdf), desc="Processing ROIs"
-    ):
-        roi_geom = roi.geometry
+        roi_key = f"x{roi_x1}y{roi_y1}x{roi_x2}y{roi_y2}"
 
-        # Grab the bounds.
-        minx, miny, maxx, maxy = roi_geom.bounds
-        minx, miny = int(minx), int(miny)
-        maxx, maxy = int(maxx), int(maxy)
+        # Make a copy of the label boxes.
+        box_gdf_copy = box_gdf.copy()
 
-        # Calculate the tile coordinates for this ROI.
+        # Shift the boxes so zero zero is the top left of the ROI.
+        box_gdf_copy["geometry"] = box_gdf_copy["geometry"].apply(
+            lambda x: translate(x, xoff=-roi_x1, yoff=-roi_y1)
+        )
+
+        # Scale the boxes so they are at the desired magnification.
+        box_gdf_copy["geometry"] = box_gdf_copy["geometry"].apply(
+            lambda x: scale(x, xfact=sf_x, yfact=sf_y, origin=(0, 0))
+        )
+
+        # Get the ROI at the specified resolution.
+        roi_img = ts.getRegion(
+            region={
+                "left": roi_x1,
+                "top": roi_y1,
+                "right": roi_x2,
+                "bottom": roi_y2,
+            },
+            format=large_image.constants.TILE_FORMAT_NUMPY,
+            scale={"mm_x": mm_px, "mm_y": mm_px},
+        )[0][:, :, :3].copy()
+
+        # Calculate the top left coordinates of each tile in this ROI.
         xys = []
+        roi_h, roi_w = roi_img.shape[:2]
 
-        for x in range(minx, maxx, scan_stride[0]):
-            for y in range(miny, maxy, scan_stride[1]):
+        for x in range(0, roi_w, stride):
+            for y in range(0, roi_h, stride):
                 xys.append((x, y))
 
-        # Loop through each tile coordinate.
-        for xy in tqdm(xys, desc=f"Processing tiles for ROI {i+1}"):
-            x1, y1 = xy
+        # Loop through each tile.
+        for xy in tqdm(xys, desc="Processing tiles"):
+            x, y = xy
 
-            # Calculate the corners of the tile.
-            x2 = min(x1 + scan_tile_size[0], maxx)
-            y2 = min(y1 + scan_tile_size[1], maxy)
+            # Get the tile image.
+            tile_img = roi_img[y : y + tile_size, x : x + tile_size]
 
-            # Get the tile from the WSI.
-            img = ts.getRegion(
-                region={
-                    "left": x1,
-                    "top": y1,
-                    "right": x2,
-                    "bottom": y2,
-                },
-                format=large_image.constants.TILE_FORMAT_NUMPY,
-                scale={"mm_x": mm_px[0], "mm_y": mm_px[1]},
-            )[0][:, :, :3].copy()
+            # Shift all the boxes by the top left corner of this tile.
+            box_gdf_shifted = box_gdf_copy.copy()
+            box_gdf_shifted["geometry"] = box_gdf_shifted["geometry"].apply(
+                lambda geom: translate(geom, xoff=-x, yoff=-y)
+            )
 
-            # Create a box on the tile.
-            tile_geom = Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
+            # Add the area of the box to tile.
+            box_gdf_shifted["area"] = box_gdf_shifted["geometry"].area
 
-            # Get polygons for this tile.
-            tile_objects = object_gdf[object_gdf.intersects(tile_geom)].copy()
-            tile_objects = tile_objects.clip(tile_geom)
+            # Create a polygon for the tile
+            tile_h, tile_w = tile_img.shape[:2]
 
-            # Remove objects that most area is missing from the tile.
-            tile_objects = tile_objects[
-                tile_objects.geometry.area / tile_objects["area"]
-                > obj_area_thr
-            ]
+            # Determine if the tile is too small.
+            tile_area = tile_h * tile_w
+            if tile_area < tile_area_threshold:
+                # Skip the tile.
+                continue
 
-            # Translate and scale the polygons.
-            tile_objects.geometry = tile_objects.geometry.translate(
-                xoff=-x1, yoff=-y1
-            ).scale(xfact=sf[0], yfact=sf[1], origin=(0, 0))
+            tile_box = Polygon(
+                [(0, 0), (tile_w, 0), (tile_w, tile_h), (0, tile_h), (0, 0)]
+            )
 
-            # Pad the tile if not the right tile size.
-            tile_shape = img.shape[:2]
+            # Calculate the intersection.
+            box_gdf_shifted["geometry"] = box_gdf_shifted[
+                "geometry"
+            ].intersection(tile_box)
 
-            if tile_shape != (tile_size, tile_size):
-                # Pad the tile.
-                img = cv.copyMakeBorder(
-                    img,
+            # Remove the empty geometries.
+            box_gdf_shifted = box_gdf_shifted[
+                box_gdf_shifted["geometry"].area > 0
+            ].reset_index(drop=True)
+
+            # Calculate the new area.
+            box_gdf_shifted["clipped_area"] = box_gdf_shifted["geometry"].area
+
+            # Remove boxes that are less than the threshold
+            box_gdf_shifted["frac_in_tile"] = (
+                box_gdf_shifted["clipped_area"] / box_gdf_shifted["area"]
+            )
+            box_gdf_shifted = box_gdf_shifted[
+                box_gdf_shifted["frac_in_tile"] >= box_area_threshold
+            ].reset_index(drop=True)
+
+            if tile_h != tile_size or tile_w != tile_size:
+                # Pad the edge of the tile.
+                tile_img = cv.copyMakeBorder(
+                    tile_img,
                     0,
-                    tile_size - tile_shape[0],
+                    tile_size - tile_h,
                     0,
-                    tile_size - tile_shape[1],
+                    tile_size - tile_w,
                     cv.BORDER_CONSTANT,
                     value=pad_rgb,
                 )
 
-            # Save the tile.
-            key = f"{wsi_name}_roi-x{minx}y{miny}_tile-x{x1}y{y1}."
-            img_fp = img_dir / f"{key}png"
-            imwrite(img_fp, img)
+            tile_key = (
+                f"{wsi_name}_{roi_key}_x{x}y{y}x{x+tile_size}y{y+tile_size}"
+            )
+            img_fp = img_dir / f"{tile_key}.png"
+            imwrite(img_fp, tile_img)
 
-            # Save the labels in the Ultralytics format.
-            label_fp = label_dir / f"{key}txt"
-
+            # Write the labels to file.
             labels = ""
 
-            for _, r in tile_objects.iterrows():
+            for _, r in box_gdf_shifted.iterrows():
                 # Get the width and height of the object.
-                width, height = r.width, r.height
+                bx1, by1, bx2, by2 = r.geometry.bounds
 
-                # Get the center of the object.
-                cx, cy = r.geometry.centroid.x, r.geometry.centroid.y
+                xc = (bx1 + bx2) / 2
+                yc = (by1 + by2) / 2
+                bh = by2 - by1
+                bw = bx2 - bx1
 
-                # Normalize the coordinates by tile size.
-                cx /= tile_size
-                cy /= tile_size
-                width /= tile_size
-                height /= tile_size
+                # normalize
+                xc /= tile_size
+                yc /= tile_size
+                bw /= tile_size
+                bh /= tile_size
 
-                # Setup the YOLO line.
-                label = r["label"]
-                label_id = int(object_label2id[label])
-                labels += (
-                    f"{label_id} {cx:.4f} {cy:.4f} {width:.4f} {height:.4f}\n"
-                )
+                labels += f"{box_labels.index(r['label'])} {xc:.4f} {yc:.4f} {bw:.4f} {bh:.4f}\n"
 
-            if len(labels):
+            label_fp = label_dir / f"{tile_key}.txt"
+
+            if labels:
                 with open(label_fp, "w") as f:
                     f.write(labels.strip())
 
-            # Append the tile metadata.
-            tile_metadata.append(
-                {
-                    "image_fp": str(img_fp),
-                    "label_fp": str(label_fp),
-                    "roi_x1": minx,
-                    "roi_y1": miny,
-                    "roi_x2": maxx,
-                    "roi_y2": maxy,
-                    "tile_x1": x1,
-                    "tile_y1": y1,
-                    "tile_x2": x2,
-                    "tile_y2": y2,
-                }
+            metadata.append(
+                [
+                    str(img_fp),
+                    str(label_fp),
+                    roi_key,
+                    x,
+                    y,
+                    x + tile_size,
+                    y + tile_size,
+                    magnification,
+                    mm_px,
+                ]
             )
 
-    df = pd.DataFrame(
-        tile_metadata,
+    return pd.DataFrame(
+        metadata,
         columns=[
-            "image_fp",
+            "img_fp",
             "label_fp",
-            "roi_x1",
-            "roi_y1",
-            "roi_x2",
-            "roi_y2",
-            "tile_x1",
-            "tile_y1",
-            "tile_x2",
-            "tile_y2",
+            "roi_key",
+            "x1",
+            "y1",
+            "x2",
+            "y2",
+            "mag",
+            "mm_px",
         ],
     )
-    return df, mag, mm_px
