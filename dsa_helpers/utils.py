@@ -9,6 +9,49 @@ import numpy as np
 import cv2 as cv
 
 
+def return_mag_and_resolution(
+    mag: int | None = None,
+    mm_px: float | None = None,
+    standard_mag: int = 40,
+    standard_mm_px: float = 0.0002519,
+) -> tuple[float, float]:
+    """Given an input magnification or resolution, return the other
+    based on the standard values defined by standard_mag and
+    standard_mm_per_px.
+
+    Args:
+        mag (int | None, optional): Magnification to use. Defaults to
+            None.
+        mm_px (float | None, optional): Resolution to use. Defaults to
+            None.
+        standard_mag (int, optional): Standard magnification. Matches
+            the standard resolution provided. Defaults to 40.
+        standard_mm_px (float, optional): Standard resolution. Matches
+            the standard magnification provided. Defaults to 0.0002519.
+
+    Returns:
+        tuple[float, float, float]: Returns the magnification and
+            resolution of the image. These are standardized to the
+            standard values provided in the inputs.
+
+    """
+    assert (
+        mag is not None or mm_px is not None
+    ), "Either mag or mm_px must be provided."
+    assert (
+        mag is None or mm_px is None
+    ), "Only one of mag or mm_px can be provided."
+
+    if mm_px is None:
+        # Use the magnification to calculate the resolutions.
+        mm_px = standard_mm_px * standard_mag / mag
+    else:
+        # Use the resolution to calculate the magnification.
+        mag = standard_mag * standard_mm_px / mm_px
+
+    return mag, mm_px
+
+
 def remove_small_holes(
     polygon: Polygon, hole_area_threshold: float
 ) -> Polygon:
