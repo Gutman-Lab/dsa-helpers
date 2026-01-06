@@ -20,6 +20,7 @@ def tile_wsi_for_yolo(
     geojson_doc: dict,
     roi_labels: str | list[str],
     box_labels: list[str],
+    label2id: dict[str, int],
     save_dir: str,
     magnification: int = 20,
     tile_size: int = 1280,
@@ -27,6 +28,7 @@ def tile_wsi_for_yolo(
     tile_area_threshold: float = 0.25,
     pad_rgb: tuple[int, int, int] = (114, 114, 114),
     box_area_threshold: float = 0.5,
+    allow_small_rotations: bool = False,
 ) -> pd.DataFrame:
     """Tile WSI for YOLO model training in the Ultralytics format.
 
@@ -40,6 +42,8 @@ def tile_wsi_for_yolo(
             annotations. The integer labels are determined by the order
             of the labels on the list. Note that again only rectangular
             boxes with no rotation are supported, others are ignored.
+        label2id (dict[str, int]): Mapping of label names to integer
+            indices. All box labels must be in the label2id dictionary.
         save_dir (str): Directory to save the tiles and labels to.
         magnification (int, optional): Magnification to get tiles at.
             Defaults to 20.
@@ -56,6 +60,10 @@ def tile_wsi_for_yolo(
         box_area_threshold (float, optional): Fraction of box that must
             be in the tile to be included. If the fraction is less than
             this value than it is ignored. Defaults to 0.5.
+        allow_small_rotations (bool, optional): Whether to allow small
+            rotations of the boxes. Rotations less than 5 degrees are
+            ignored, and the smallest bounding box is used instead on
+            the tile. Defaults to False.
 
     Returns:
         pandas.DataFrame: DataFrame with the tile metadata.
@@ -64,6 +72,9 @@ def tile_wsi_for_yolo(
     assert len(box_labels) == len(
         set(box_labels)
     ), "Box labels must be unique."
+
+    for label in box_labels:
+        assert label in label2id, f"Label {label} not in label2id."
 
     if isinstance(roi_labels, str):
         roi_labels = [roi_labels]
@@ -83,7 +94,27 @@ def tile_wsi_for_yolo(
     # Convert the label column, which is a dict to use the value as cell value.
     gdf["label"] = gdf["label"].apply(lambda x: x["value"])
 
-    gdf = gdf[(gdf["rotation"] == 0) & (gdf["type"] == "rectangle")]
+    # Keep only rectangles.
+    gdf = gdf[(gdf["type"] == "rectangle")]
+
+    if allow_small_rotations:
+        # Remove rows with rotations less than 5 degrees.
+        gdf = gdf[gdf["rotation"] <= 5]
+
+        # Take only the smallest bounding box for each box.
+        gdf["geometry"] = gdf["geometry"].apply(
+            lambda geom: Polygon(
+                [
+                    (geom.bounds[0], geom.bounds[1]),  # (minx, miny)
+                    (geom.bounds[2], geom.bounds[1]),  # (maxx, miny)
+                    (geom.bounds[2], geom.bounds[3]),  # (maxx, maxy)
+                    (geom.bounds[0], geom.bounds[3]),  # (minx, maxy)
+                    (geom.bounds[0], geom.bounds[1]),  # close the polygon
+                ]
+            )
+        )
+    else:
+        gdf = gdf[(gdf["rotation"] == 0)]
 
     # Make the geometries 2D.
     gdf["geometry"] = gdf["geometry"].apply(force_2d)
