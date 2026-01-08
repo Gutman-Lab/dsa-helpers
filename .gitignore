@@ -14,3 +14,4 @@ tests/models/
 temp*
 
 large_image-*.whl
+*.pt
