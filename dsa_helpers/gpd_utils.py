@@ -309,18 +309,31 @@ def draw_gdf_on_array(gdf, shape, id_column="idx", default_value: int = 0):
 
 def make_gpd_valid(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """Make a GeoDataFrame valid, keep only polygons.
-    
+
     Args:
         gdf (geopandas.GeoDataFrame): The GeoDataFrame to make valid.
 
     Returns:
         geopandas.GeoDataFrame: The GeoDataFrame with valid geometries.
-    
+
+    Raises:
+        ValueError: If still have MultiPolygons after exploding.
+
     """
     gdf["geometry"] = gdf["geometry"].apply(make_valid)
     gdf = gdf.explode(index_parts=False)
-    gdf = gdf[
-        (gdf["geometry"].geom_type == "Polygon") & (gdf["geometry"].is_valid)
-    ]
+
+    # Keep only the polygons and MultiPolygons.
+    gdf = gdf[gdf["geometry"].geom_type.isin(["Polygon", "MultiPolygon"])]
+
+    # If multipolygons still exist, explode them.
+    if gdf["geometry"].geom_type.value_counts().get("MultiPolygon", 0) > 0:
+        gdf = gdf.explode(index_parts=False)
+
+        gdf = gdf[gdf["geometry"].geom_type.isin(["Polygon", "MultiPolygon"])]
+
+        # If multipolygons still exist, then we need to raise an error.
+        if gdf["geometry"].geom_type.value_counts().get("MultiPolygon", 0) > 0:
+            raise ValueError("Still have MultiPolygons after exploding.")
 
     return gdf.reset_index(drop=True)
