@@ -1145,10 +1145,8 @@ def semantic_segmentation_annotation_metrics(
 def calculate_dice_from_annotations(
     gt_ann_doc: dict,
     inf_ann_doc: dict,
-    groups: list[str] | None = None,
-    gt_uses_label: bool = False,
-    inf_uses_label: bool = False,
-) -> dict:
+    classes: list[str],
+) -> tuple[dict, float]:
     """
     Calculate the DICE score between two annotation documents.
 
@@ -1157,54 +1155,41 @@ def calculate_dice_from_annotations(
             geojson format.
         inf_ann_doc (dict): The inference annotation document, in
             geojson format.
-        groups (list[str] | None, optional): The groups to calculate the
-            DICE score for. If None, all groups in both the ground truth
-            and inference will be used. Defaults to None.
-        gt_uses_label (bool, optional): Whether to use the label column
-            of the ground truth annotation document as the group.
-            Defaults to False.
-        inf_uses_label (bool, optional): Whether to use the label column
-            of the inference annotation document as the group.
-            Defaults to False.
+        classes (list[str]): Classes to calculate dice scores for.
 
     Returns:
-        dict: A dictionary containing the DICE scores for each group.
+        dict: A dictionary containing the DICE scores for each class.
         float: The weighted mean DICE score, weighted by the amount of
-            area of each group in the ground truth.
+            area of each class in the ground truth.
 
     """
     gt_gdf = gpd.GeoDataFrame.from_features(gt_ann_doc["features"])
     inf_gdf = gpd.GeoDataFrame.from_features(inf_ann_doc["features"])
 
-    if gt_uses_label:
-        gt_gdf["group"] = gt_gdf["label"].apply(
-            lambda x: x.get("value", "") if isinstance(x, dict) else x
-        )
-    if inf_uses_label:
-        inf_gdf["group"] = inf_gdf["label"].apply(
-            lambda x: x.get("value", "") if isinstance(x, dict) else x
-        )
+    gt_gdf["label"] = gt_gdf["label"].apply(lambda x: x["value"])
+    inf_gdf["label"] = inf_gdf["label"].apply(lambda x: x["value"])
 
-    if groups is None:
-        # Groups will be the set of all groups in the ground truth and inference.
-        groups = list(
-            set(gt_gdf["group"].unique()) | set(inf_gdf["group"].unique())
-        )
+    gt_gdf = gt_gdf[gt_gdf["label"].isin(classes)]
+    inf_gdf = inf_gdf[inf_gdf["label"].isin(classes)]
 
     gt_gdf = make_gpd_valid(gt_gdf)
     inf_gdf = make_gpd_valid(inf_gdf)
 
     # Turns the gdfs into a single row per group, as multipolygons as needed.
-    gt_gdf = gt_gdf.dissolve(by="group", as_index=False)
-    inf_gdf = inf_gdf.dissolve(by="group", as_index=False)
+    gt_gdf = gt_gdf.dissolve(by="label", as_index=False)
+    inf_gdf = inf_gdf.dissolve(by="label", as_index=False)
 
     # Iterate through each group.
     dice_scores = []
     class_weights = []
 
-    for group in groups:
-        gt_gdf_group = gt_gdf[gt_gdf["group"] == group]["geometry"]
-        inf_gdf_group = inf_gdf[inf_gdf["group"] == group]["geometry"]
+    for cls in classes:
+        gt_gdf_group = gt_gdf[gt_gdf["label"] == cls]["geometry"].reset_index(
+            drop=True
+        )
+        inf_gdf_group = inf_gdf[inf_gdf["label"] == cls][
+            "geometry"
+        ].reset_index(drop=True)
 
         if len(gt_gdf_group) == 0 or len(inf_gdf_group) == 0:
             intersection = 0
@@ -1230,7 +1215,7 @@ def calculate_dice_from_annotations(
     )
 
     dice_scores = {
-        group: float(score) for group, score in zip(groups, dice_scores)
+        cls: float(score) for cls, score in zip(classes, dice_scores)
     }
 
     return dice_scores, float(weighted_mean_dice)
