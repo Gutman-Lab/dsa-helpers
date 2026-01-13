@@ -180,7 +180,7 @@ def inference(
             # Deconvolve to get images of the hematoxylin channel.
             img_list = []
 
-            for img in imgs:
+            for img in tiles:
                 img = (
                     htk.preprocessing.color_deconvolution.color_deconvolution(
                         img, W
