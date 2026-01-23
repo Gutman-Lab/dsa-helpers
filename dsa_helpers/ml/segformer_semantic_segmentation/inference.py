@@ -248,7 +248,7 @@ def inference(
 
     # Convert polygons and labels to a GeoDataFrame.
     raw_gdf = gpd.GeoDataFrame(wsi_polygons, columns=["geometry", "label"])
-
+    gdf = raw_gdf.copy()
     if return_raw_gdf:
         # Scale the raw gdf.
         raw_gdf["geometry"] = raw_gdf["geometry"].apply(
@@ -259,7 +259,6 @@ def inference(
 
     # Add a small buffer to the polygons to make polygons from adjacent tiles
     # touch, this allows merging adjacent tile polygons when dissolving.
-    gdf = raw_gdf.copy()
     start_time = perf_counter()
     gdf["geometry"] = gdf["geometry"].buffer(buffer)
     results.add_time("buffer", perf_counter() - start_time)
