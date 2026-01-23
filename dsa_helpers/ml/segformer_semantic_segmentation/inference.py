@@ -56,6 +56,7 @@ def inference(
     nproc: int = 20,
     interior_max_area: int = 100000,
     hematoxylin_channel: bool = False,
+    return_raw_gdf: bool = False,
 ) -> InferenceResult:
     """Inference using SegFormer semantic segmentation model on a WSI.
 
@@ -100,6 +101,8 @@ def inference(
         hematoxylin_channel (bool, optional): Whether to use the
             hematoxylin channel when predicting the segmentation mask.
             Defaults to False.
+        return_raw_gdf (bool, optional): Whether to return the raw
+            inference output as a geopandas dataframe. Defaults to False.
 
     Returns:
         SegFormerSSInferenceResult: Result object containing the inference output.
@@ -244,10 +247,19 @@ def inference(
     results.add_time("inference", perf_counter() - start_time)
 
     # Convert polygons and labels to a GeoDataFrame.
-    gdf = gpd.GeoDataFrame(wsi_polygons, columns=["geometry", "label"])
+    raw_gdf = gpd.GeoDataFrame(wsi_polygons, columns=["geometry", "label"])
+
+    if return_raw_gdf:
+        # Scale the raw gdf.
+        raw_gdf["geometry"] = raw_gdf["geometry"].apply(
+            lambda geom: scale(
+                geom, xfact=1 / sf_x, yfact=1 / sf_y, origin=(0, 0)
+            )
+        )
 
     # Add a small buffer to the polygons to make polygons from adjacent tiles
     # touch, this allows merging adjacent tile polygons when dissolving.
+    gdf = raw_gdf.copy()
     start_time = perf_counter()
     gdf["geometry"] = gdf["geometry"].buffer(buffer)
     results.add_time("buffer", perf_counter() - start_time)
@@ -279,6 +291,9 @@ def inference(
     results.add_field("gdf", gdf)
     results.add_field("mag", mag)
     results.add_field("mm_px", mm_px)
+
+    if return_raw_gdf:
+        results.add_field("raw_gdf", raw_gdf)
 
     return results
 
