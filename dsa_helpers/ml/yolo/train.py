@@ -21,8 +21,14 @@ def train_yolo(
     workers: int = 8,
     lr0: float = 0.01,
     train_kwargs: dict = None,
+    agnostic_nms: bool = True,
+    conf: float = 0.001,
+    iou: float = 0.7,
 ):
     """Function for training a YOLO model with the Ultralytics API.
+
+    * Some of the argument descriptions are taken from the Ultralytics
+    documentation.
 
     Args:
         project_dir (str): Parent directory the model directory will be
@@ -67,6 +73,17 @@ def train_yolo(
                 Defaults to 0.6.
             scale (float, optional): The amount of zoom to apply to the
                 image. Defaults to 0.2.
+        agnostic_nms (bool, optional): Enables class-agnostic
+            Non-Maximum Suppression, which merges overlapping boxes
+            regardless of their predicted class. Useful for
+            instance-focused applications. Defaults to True.
+        conf (float, optional): Sets the minimum confidence threshold
+            for detections. Lower values increase recall but may
+            introduce more false positives. Used during validation to
+            compute precision-recall curves. Defaults to 0.001.
+        iou (float, optional): Sets the Intersection Over Union
+            threshold for Non-Maximum Suppression. Controls duplicate
+            detection elimination. Defaults to 0.7.
 
     Returns:
         model: The trained model.
@@ -75,6 +92,11 @@ def train_yolo(
         train_time (float): Time to train model in seconds.
 
     """
+    project_dir_path = Path(project_dir)
+
+    if not project_dir_path.is_absolute():
+        raise ValueError(f"Project directory {project_dir} is not absolute.")
+
     # Load the model.
     model = YOLO(pretrained_model)
 
@@ -125,12 +147,46 @@ def train_yolo(
         device=device,
         workers=workers,
         lr0=lr0,
+        agnostic_nms=agnostic_nms,
         **train_augmentation,
     )
     train_time = perf_counter() - start_time
 
     validation_results = {}
     runs_dir = project_dir / "runs"
+
+    if device is not None and isinstance(device, list):
+        device_str = [f"cuda:{d}" for d in device]
+        device_str = ",".join(device_str)
+    else:
+        device_str = device
+
+    if (validate_with_val or validate_with_train) and results is None:
+        # This is for multi-processing.
+        print(
+            "Warning: model.train() returned None (common with DDP). Reloading results from saved model..."
+        )
+
+        best_model_path = model_dir / "weights" / "best.pt"
+
+        if best_model_path.exists():
+            # Reload the model and get results by running validation
+            model = YOLO(str(best_model_path))
+            results = model.val(
+                data=str(yaml_path),
+                split="val",
+                batch=batch_size,
+                device=device_str,
+                workers=workers,
+                agnostic_nms=agnostic_nms,
+                conf=conf,
+                iou=iou,
+            )
+            print("Successfully reloaded results from saved model.")
+        else:
+            raise FileNotFoundError(
+                f"Best model path {best_model_path} does not exist."
+            )
 
     if validate_with_train:
         runs_dir.mkdir(parents=True, exist_ok=True)
@@ -143,6 +199,12 @@ def train_yolo(
                 split="train",
                 classes=[i],
                 project=str(runs_dir),
+                batch=batch_size,
+                device=device_str,
+                workers=workers,
+                agnostic_nms=agnostic_nms,
+                conf=conf,
+                iou=iou,
             )
 
             validation_results["train"][names[i]] = (
@@ -160,6 +222,12 @@ def train_yolo(
                 split="val",
                 classes=[i],
                 project=str(runs_dir),
+                batch=batch_size,
+                device=device_str,
+                workers=workers,
+                agnostic_nms=agnostic_nms,
+                conf=conf,
+                iou=iou,
             )
 
             validation_results["val"][names[i]] = convert_to_json_serializable(
