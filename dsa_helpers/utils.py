@@ -2,11 +2,63 @@
 
 This module provides various miscellaneous utility functions that are
 not grouped into their own modules.
+
+Function list:
+* non_max_suppression: Apply non-max suppression (NMS) on a set of prediction boxes.
+
 """
 
 from shapely.geometry import Polygon
 import numpy as np
 import cv2 as cv
+import pandas as pd
+
+
+def non_max_suppression(df: pd.DataFrame, thr: float) -> pd.DataFrame:
+    """Apply non-max suppression (nms) on a set of prediction boxes.
+    Source: https://github.com/rbgirshick/fast-rcnn/blob/master/lib/utils/nms.py
+
+    Args
+    ------
+    df : pd.DataFrame
+        Data for each box, must contain the x1, y1, x2, y2, conf columns
+        with point 1 being top left of the box and point 2 and bottom
+        right of box.
+    thr (float): IoU threshold used for NMS.
+
+    Returns:
+        pd.DataFrame: Remaining boxes.
+
+    """
+    df = df.reset_index(drop=True)  # indices must be reset
+    dets = df[["x1", "y1", "x2", "y2", "conf"]].to_numpy()
+    x1 = dets[:, 0]
+    y1 = dets[:, 1]
+    x2 = dets[:, 2]
+    y2 = dets[:, 3]
+    scores = dets[:, 4]
+
+    areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+    order = scores.argsort()[::-1]
+
+    keep = []
+    while order.size > 0:
+        i = order[0]
+        keep.append(i)
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+
+        w = np.maximum(0.0, xx2 - xx1 + 1)
+        h = np.maximum(0.0, yy2 - yy1 + 1)
+        inter = w * h
+        ovr = inter / (areas[i] + areas[order[1:]] - inter)
+
+        inds = np.where(ovr <= thr)[0]
+        order = order[inds + 1]
+
+    return df.loc[keep]
 
 
 def return_mag_and_resolution(
@@ -30,7 +82,7 @@ def return_mag_and_resolution(
             the standard magnification provided. Defaults to 0.0002519.
 
     Returns:
-        tuple[float, float, float]: Returns the magnification and
+        tuple[float, float]: Returns the magnification and
             resolution of the image. These are standardized to the
             standard values provided in the inputs.
 

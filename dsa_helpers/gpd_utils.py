@@ -8,6 +8,7 @@ Functions:
 - remove_gdf_overlaps: Remove overlaps from a GeoDataFrame.
 - draw_gdf_on_array: Draw a GeoDataFrame on an array.
 - make_gpd_valid: Make a GeoDataFrame valid, keep only polygons.
+- remove_contained_boxes: Remove boxes contained in other boxes, or mostly contained.
 
 """
 
@@ -23,6 +24,56 @@ from shapely.ops import unary_union
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+
+
+def remove_contained_boxes(
+    df: gpd.GeoDataFrame, thr: float
+) -> gpd.GeoDataFrame:
+    """Remove boxes contained in other boxes, or mostly contained.
+
+    Args:
+        df (geopandas.GeoDataFrame): Data for each box, must contain the
+            x1, y1, x2, y2, conf columns with point 1 being top left of
+            the box and point 2 and bottom right of box.
+        thr (float): The threshold of the box that must be contained by
+            fraction of area to be remove.
+
+    Returns:
+        geopandas.GeoDataFrame: The boxes that are left.
+
+    """
+    rm_idx = []
+
+    gseries = gpd.GeoSeries(
+        df.geometry.tolist(), index=df.index.tolist()
+    )  # convert to a geoseries
+
+    for i, geo in gseries.items():
+        # don't check boxes that have already been removed
+        if i not in rm_idx:
+            r = df.loc[i]
+
+            # remove boxes that don't overlap
+            overlapping = df[
+                (~df.index.isin(rm_idx + [i]))
+                & ~(
+                    (r.y2 < df.y1)
+                    | (r.y1 > df.y2)
+                    | (r.x2 < df.x1)
+                    | (r.x1 > df.x2)
+                )
+            ]
+
+            perc_overlap = (
+                overlapping.intersection(geo).area / overlapping.area
+            )  # percent of object inside the current geo
+
+            # filter by the threshold
+            overlapping = overlapping[perc_overlap > thr]
+
+            rm_idx.extend(overlapping.index.tolist())
+
+    return df.drop(index=rm_idx)
 
 
 def make_multi_polygons(
