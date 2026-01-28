@@ -13,7 +13,7 @@ def yolo_inference(
     mag: float | None = 20,
     mm_px: float | None = None,
     tile_size: int = 640,
-    overlap: int = 480,
+    overlap: int = 160,
     batch_size: int = 64,
     prefetch: int = 2,
     workers: int = 8,
@@ -44,7 +44,7 @@ def yolo_inference(
         tile_size (int, optional): Image is tiled into smaller images,
             tiles, of this size at the desired resolution.
         overlap (int, optional): The number of pixels to overlap between
-            tiles. Default is 480.
+            tiles. Default is 160.
         batch_size (int, optional): The number of tiles to process in a
             single batch. Used both for the eager iterator and the YOLO
             training. Default is 64.
