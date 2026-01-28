@@ -528,26 +528,33 @@ def get_roi_with_yolo_labels_from_single_doc(
 def post_annotations_from_gdf(
     gc: GirderClient,
     item_id: str,
-    add_attr: dict,
     doc_name: str,
     gdf: gpd.GeoDataFrame,
     idx_config: dict,
+    add_attr: dict | None = None,
 ) -> dict:
     """Post annotations from a GeoDataFrame to the DSA.
 
     Args:
-        gc (girder_client.GirderClient): The authenticated girder client.
-        item_id (str): The item id to post the annotations.
-        doc_name (str): The name of the document.
-        gdf (GeoDataFrame): The GeoDataFrame with the polygons.
-        idx_config (dict): For each label in the GeoDataFrame, the configuration
-            for the DSA annotation. Include "label", "fillColor", "lineColor", and
-            "group".
+        gc (girder_client.GirderClient): Girder client.
+        item_id (str): DSA item id, annotation posted to this item.
+        doc_name (str): Name new annotation document will have.
+        gdf (GeoDataFrame): The GeoDataFrame with the polygons, includes
+            label column.
+        idx_config (dict): For each label in the GeoDataFrame, the
+            configuration for the DSA annotation. Include "label",
+            "fillColor", "lineColor", "lineWidth", and "group".
+        add_attr (dict | None, optional): Additional attributes to add
+            to the annotation. Defaults to None. Should include "modelId"
+            and "modelName" if applicable.
 
     Returns:
         dict: The response from the DSA.
 
     """
+    if add_attr is None:
+        add_attr = {}
+
     elements = []
 
     # This step makes sure that each row contains a single polygon.
