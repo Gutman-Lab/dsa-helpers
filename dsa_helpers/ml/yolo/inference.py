@@ -2,6 +2,7 @@ import large_image_source_openslide, ultralytics
 import geopandas as gpd
 import cv2 as cv
 from shapely import Polygon
+from time import perf_counter
 
 from ...utils import non_max_suppression, return_mag_and_resolution
 from ...gpd_utils import remove_contained_boxes
@@ -22,7 +23,7 @@ def yolo_inference(
     conf_thr: float = 0.25,
     iou: float = 0.7,
     device: str | None = None,
-):
+) -> dict:
     """
     Perform YOLO inference on a whole slide image.
 
@@ -68,13 +69,20 @@ def yolo_inference(
             multiple devices separated by commas.
 
     Returns:
-        geopandas.GeoDataFrame: A GeoDataFrame containing the inference
-            results.
+        dict: A dictionary containing the inference results.
+            - gdf (geopandas.GeoDataFrame): The inference results as a
+              GeoDataFrame.
+            - mag (float): The magnification used for inference.
+            - mm_px (float): The micrometers per pixel used for inference.
+            - time (dict): A dictionary containing the time taken for
+              inference.
+                - total (float): The total time taken for inference.
 
     Raises:
         ValueError: If both mag and mm_px are provided.
 
     """
+    start_time = perf_counter()
     if isinstance(model, str):
         model = ultralytics.YOLO(model)
 
@@ -164,6 +172,11 @@ def yolo_inference(
     gdf["box_area"] = gdf.geometry.area
 
     gdf = non_max_suppression(gdf, conf_thr)
-    gdf = remove_contained_boxes(gdf, iou)
+    gdf = remove_contained_boxes(gdf, iou).reset_index(drop=True)
 
-    return gdf.reset_index(drop=True)
+    return {
+        "gdf": gdf,
+        "mag": mag,
+        "mm_px": mm_px,
+        "time": {"total": perf_counter() - start_time},
+    }
