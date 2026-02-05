@@ -1,6 +1,7 @@
-import large_image_source_openslide, ultralytics
+import large_image_source_openslide, ultralytics, large_image
 import geopandas as gpd
 import cv2 as cv
+import numpy as np
 from shapely import Polygon
 from time import perf_counter
 
@@ -24,8 +25,7 @@ def yolo_inference(
     iou: float = 0.7,
     device: str | None = None,
 ) -> dict:
-    """
-    Perform YOLO inference on a whole slide image.
+    """Perform YOLO inference on a whole slide image.
 
     Args:
         model (str | ultralytics.YOLO): YOLO model or path to the model
@@ -80,7 +80,6 @@ def yolo_inference(
 
     Raises:
         ValueError: If both mag and mm_px are provided.
-
     """
     start_time = perf_counter()
     if isinstance(model, str):
@@ -180,3 +179,248 @@ def yolo_inference(
         "mm_px": mm_px,
         "time": {"total": perf_counter() - start_time},
     }
+
+
+def yolo_inference_on_region(
+    wsi_fp: str,
+    left: int,
+    top: int,
+    right: int,
+    bottom: int,
+    weights_fp: str,
+    mag: float | None = 20,
+    mm_px: float | None = None,
+    tile_size: int = 640,
+    stride: int | None = 480,
+    batch_size: int = 64,
+    agnostic_nms: bool = True,
+    conf_thr: float = 0.25,
+    iou: float = 0.7,
+    device: str | None = None,
+    pad_rgb: tuple[int, int, int] = (114, 114, 114),
+    tile_area_threshold: float = 0.25,
+    nms_iou_thr: float = 0.25,
+    remove_contained_thr: float = 0.7,
+) -> tuple[gpd.GeoDataFrame, float, float]:
+    """Inference on a region of a WSI using a YOLO model.
+
+    Args:
+        wsi_fp (str): The file path to the WSI.
+        left (int): The left coordinate of the region.
+        top (int): The top coordinate of the region.
+        right (int): The right coordinate of the region.
+        bottom (int): The bottom coordinate of the region.
+        weights_fp (str): The file path to the YOLO model weights.
+        mag (float | None, optional): The magnification to use for the
+            inference. Default is 20.
+        mm_px (float | None, optional): The pixel size to use for the
+            inference. Default is None.
+        tile_size (int, optional): The size of the tiles to use for the
+            inference. This is the size of the tiles at the desired
+            resolution. Default is 640.
+        stride (int, optional): The stride to use for the inference. If
+            None, then the stride will be the tile size (no overlap). This
+            is the stride at the desired resolution. Default is 480.
+        batch_size (int, optional): The batch size to use for the
+            inference. Default is 64.
+        agnostic_nms (bool, optional): Whether to use agnostic NMS.
+            Default is True.
+        conf_thr (float, optional): The confidence threshold to use for
+            the inference. Default is 0.25.
+        iou (float, optional): The IoU threshold to use for the
+            inference. Default is 0.7.
+        device (str | None, optional): The device to use for the
+            inference. Default is None.
+        pad_rgb (tuple[int, int, int], optional): The RGB values to pad
+            the tiles with. Default is (114, 114, 114).
+        tile_area_threshold (float, optional): The threshold for the tile
+            area in region. Default is 0.25.
+        nms_iou_thr (float, optional): The IoU threshold to use for the
+            NMS after inference. Default is 0.25.
+        remove_contained_thr (float, optional): The threshold for the
+            contained boxes. Default is 0.7.
+
+    Returns:
+        tuple[gpd.GeoDataFrame, float, float]: A tuple containing the
+            inference results, the magnification, and the pixel size used.
+
+    Raises:
+        ValueError: If the region is out of bounds.
+    """
+    assert left < right and top < bottom, "Region is out of bounds."
+
+    if stride is None:
+        stride = tile_size
+
+    # Load the YOLO model.
+    model = ultralytics.YOLO(weights_fp)
+
+    ts = large_image_source_openslide.open(wsi_fp)
+    ts_metadata = ts.getMetadata()
+
+    mm_x = ts_metadata["mm_x"]
+    mm_y = ts_metadata["mm_y"]
+
+    # Get the desired resolution.
+    if mag is not None and mm_px is not None:
+        raise ValueError("Only one of mag or mm_px can be provided.")
+    if mag is None and mm_px is None:
+        # Use the scan resolution, we use the x resolution.
+        mag, mm_px = return_mag_and_resolution(mm_px=mm_x)
+    else:
+        mag, mm_px = return_mag_and_resolution(mag=mag, mm_px=mm_px)
+
+    # Calculate the x and y size of the tile at scan resolution.
+    # desired resolution x sf_* -> scan resolution
+    sf_x = mm_px / mm_x
+    sf_y = mm_px / mm_y
+
+    scan_tile_x = int(tile_size * sf_x)
+    scan_tile_y = int(tile_size * sf_y)
+    scan_stride_x = int(stride * sf_x)
+    scan_stride_y = int(stride * sf_y)
+
+    # Create a low res mask for the region.
+    wsi_w = ts_metadata["sizeX"]
+    wsi_h = ts_metadata["sizeY"]
+
+    if right > wsi_w or bottom > wsi_h:
+        raise ValueError("Region is out of bounds.")
+
+    # Calculate the x, y coordinates
+    xys = []
+
+    for x in range(left, right, scan_stride_x):
+        for y in range(top, bottom, scan_stride_y):
+            xys.append((x, y))
+
+    if len(xys) == 0:
+        raise ValueError("No tiles to process with given region.")
+
+    # Process in batches.
+    batch_indices = np.arange(0, len(xys), batch_size)
+
+    if len(batch_indices) == 1:
+        print(
+            f"Found {len(xys)} tiles to process in {len(batch_indices)} batch."
+        )
+    else:
+        print(
+            f"Found {len(xys)} tiles to process in {len(batch_indices)} batches."
+        )
+
+    # Iterate through the WSI.
+    boxes = []
+
+    # Calculate the tile area to be above the threshold.
+    tile_area = tile_size * tile_size
+    minimum_tile_area = tile_area * tile_area_threshold
+
+    for batch_idx in batch_indices:
+        xy_index = batch_idx * batch_size
+
+        # Get the tiles.
+        batch_xys = xys[xy_index : xy_index + batch_size]
+
+        tiles = []
+
+        tile_x_coords = []
+        tile_y_coords = []
+
+        for xy in batch_xys:
+            x1, y1 = xy
+
+            x2 = x1 + scan_tile_x
+
+            if x2 > right:
+                x2 = right
+
+            y2 = y1 + scan_tile_y
+
+            if y2 > bottom:
+                y2 = bottom
+
+            # Get the tiles.
+            tile = ts.getRegion(
+                region={
+                    "left": x1,
+                    "top": y1,
+                    "right": x2,
+                    "bottom": y2,
+                },
+                format=large_image.constants.TILE_FORMAT_NUMPY,
+                scale={"mm_x": mm_px, "mm_y": mm_px},
+            )[0][:, :, :3].copy()
+
+            # Pad the tile if it is not the right shape.
+            tile_h, tile_w, _ = tile.shape
+
+            tile_area = tile_h * tile_w
+
+            if tile_area < minimum_tile_area:
+                continue
+
+            tile_x_coords.append(x1)
+            tile_y_coords.append(y1)
+
+            if tile_h != tile_size or tile_w != tile_size:
+                tile = cv.copyMakeBorder(
+                    tile,
+                    0,
+                    tile_size - tile_h,
+                    0,
+                    tile_size - tile_w,
+                    cv.BORDER_CONSTANT,
+                    value=pad_rgb,
+                )
+            # Convert to BGR.
+            tile = cv.cvtColor(tile, cv.COLOR_RGB2BGR)
+
+            tiles.append(tile)
+
+        results = model(
+            tiles,
+            imgsz=tile_size,
+            batch=batch_size,
+            agnostic_nms=agnostic_nms,
+            verbose=False,
+            conf=conf_thr,
+            iou=iou,
+            device=device,
+        )
+
+        # Loop through tile variables.
+        for result, x, y in zip(results, tile_x_coords, tile_y_coords):
+            xyxys = result.boxes.xyxyn
+            cls_list = result.boxes.cls
+            conf_list = result.boxes.conf
+
+            for xyxy, cls, conf in zip(xyxys, cls_list, conf_list):
+                # cls and conf are tensorts in device, convert to to int and float
+                cls = int(cls)
+                conf = float(conf)
+
+                x1, y1, x2, y2 = xyxy
+
+                # (1) scale to scan resolution, (2) shift to tile location.
+                x1 = int(x1 * scan_tile_x) + x
+                y1 = int(y1 * scan_tile_y) + y
+                x2 = int(x2 * scan_tile_x) + x
+                y2 = int(y2 * scan_tile_y) + y
+
+                # Create the polygon.
+                geom = Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
+                boxes.append([cls, x1, y1, x2, y2, conf, geom])
+
+    gdf = gpd.GeoDataFrame(
+        boxes, columns=["label", "x1", "y1", "x2", "y2", "conf", "geometry"]
+    )
+    gdf["box_area"] = gdf.geometry.area
+
+    # Clean up predictions further.
+    if nms_iou_thr:
+        gdf = non_max_suppression(gdf, nms_iou_thr)
+    if remove_contained_thr:
+        gdf = remove_contained_boxes(gdf, remove_contained_thr)
+
+    return gdf, mag, mm_px
