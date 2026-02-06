@@ -144,7 +144,7 @@ def yolo_inference(
 
         # Loop through tile variables.
         for result, x, y in zip(results, tile_x_coords, tile_y_coords):
-            xyxys = result.boxes.xyxyn
+            xyxys = result.boxes.xyxy
             cls_list = result.boxes.cls
             conf_list = result.boxes.conf
 
@@ -156,10 +156,10 @@ def yolo_inference(
                 x1, y1, x2, y2 = xyxy
 
                 # (1) scale to scan resolution, (2) shift to tile location.
-                x1 = int(x1 * scan_tile_x) + x
-                y1 = int(y1 * scan_tile_y) + y
-                x2 = int(x2 * scan_tile_x) + x
-                y2 = int(y2 * scan_tile_y) + y
+                x1 = int(x1 * sf_x) + x
+                y1 = int(y1 * sf_y) + y
+                x2 = int(x2 * sf_x) + x
+                y2 = int(y2 * sf_y) + y
 
                 # Create the polygon.
                 geom = Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
@@ -421,9 +421,9 @@ def yolo_inference_on_region(
     gdf["box_area"] = gdf.geometry.area
 
     # Clean up predictions further.
-    if nms_iou_thr:
+    if nms_iou_thr > 0:
         gdf = non_max_suppression(gdf, nms_iou_thr)
-    if remove_contained_thr:
+    if remove_contained_thr > 0:
         gdf = remove_contained_boxes(gdf, remove_contained_thr)
 
     return gdf, mag, mm_px
