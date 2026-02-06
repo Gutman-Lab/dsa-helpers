@@ -378,6 +378,9 @@ def yolo_inference_on_region(
 
             tiles.append(tile)
 
+        if len(tiles) == 0:
+            continue
+
         results = model(
             tiles,
             imgsz=tile_size,
@@ -391,7 +394,7 @@ def yolo_inference_on_region(
 
         # Loop through tile variables.
         for result, x, y in zip(results, tile_x_coords, tile_y_coords):
-            xyxys = result.boxes.xyxyn
+            xyxys = result.boxes.xyxy
             cls_list = result.boxes.cls
             conf_list = result.boxes.conf
 
@@ -403,10 +406,10 @@ def yolo_inference_on_region(
                 x1, y1, x2, y2 = xyxy
 
                 # (1) scale to scan resolution, (2) shift to tile location.
-                x1 = int(x1 * scan_tile_x) + x
-                y1 = int(y1 * scan_tile_y) + y
-                x2 = int(x2 * scan_tile_x) + x
-                y2 = int(y2 * scan_tile_y) + y
+                x1 = int(x1 * sf_x) + x
+                y1 = int(y1 * sf_y) + y
+                x2 = int(x2 * sf_x) + x
+                y2 = int(y2 * sf_y) + y
 
                 # Create the polygon.
                 geom = Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
