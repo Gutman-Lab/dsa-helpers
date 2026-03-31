@@ -79,6 +79,7 @@ def yolo_inference_no_iterator(
         ValueError: If both mag and mm_px are provided.
 
     """
+    print("This function has not been reviewed yet, use with caution.")
     start_time = perf_counter()
 
     if isinstance(model, str):
