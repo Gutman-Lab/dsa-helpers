@@ -1,6 +1,7 @@
 # Python environment directories.
 env/
 pyenv/
+.venv/
 
 *.pyc
 *.egg-info
