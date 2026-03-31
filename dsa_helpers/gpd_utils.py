@@ -14,6 +14,7 @@ Functions:
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 from rasterio.features import rasterize
 from rdp import rdp
 from tqdm import tqdm
@@ -27,12 +28,12 @@ import matplotlib.pyplot as plt
 
 
 def remove_contained_boxes(
-    df: gpd.GeoDataFrame, thr: float
+    df: gpd.GeoDataFrame | pd.DataFrame, thr: float
 ) -> gpd.GeoDataFrame:
     """Remove boxes contained in other boxes, or mostly contained.
 
     Args:
-        df (geopandas.GeoDataFrame): Data for each box, must contain the
+        df (geopandas.GeoDataFrame | pandas.DataFrame): Data for each box, must contain the
             x1, y1, x2, y2, conf columns with point 1 being top left of
             the box and point 2 and bottom right of box.
         thr (float): The threshold of the box that must be contained by

@@ -62,7 +62,7 @@ def non_max_suppression(df: pd.DataFrame, thr: float) -> pd.DataFrame:
 
 
 def return_mag_and_resolution(
-    mag: int | None = None,
+    mag: float | int | None = None,
     mm_px: float | None = None,
     standard_mag: int = 40,
     standard_mm_px: float = 0.0002519,
@@ -72,7 +72,7 @@ def return_mag_and_resolution(
     standard_mm_per_px.
 
     Args:
-        mag (int | None, optional): Magnification to use. Defaults to
+        mag (float | int | None, optional): Magnification to use. Defaults to
             None.
         mm_px (float | None, optional): Resolution to use. Defaults to
             None.
