@@ -133,10 +133,8 @@ def yolo_inference_no_iterator(
     minimum_tile_area = tile_area * tile_area_threshold
 
     for batch_idx in batch_indices:
-        xy_index = batch_idx * batch_size
-
         # Get the tiles.
-        batch_xys = xys[xy_index : xy_index + batch_size]
+        batch_xys = xys[batch_idx : batch_idx + batch_size]
 
         tiles = []
 
@@ -553,10 +551,8 @@ def yolo_inference_on_region(
     minimum_tile_area = tile_area * tile_area_threshold
 
     for batch_idx in batch_indices:
-        xy_index = batch_idx * batch_size
-
         # Get the tiles.
-        batch_xys = xys[xy_index : xy_index + batch_size]
+        batch_xys = xys[batch_idx : batch_idx + batch_size]
 
         tiles = []
 
