@@ -43,7 +43,7 @@ version = "v3.2.0"
 [project.optional-dependencies]
 opencv = ["opencv-python"]
 opencv-headless = ["opencv-python-headless"]
-ultrayltics = ["ultrayltics"]
+ultralytics = ["ultralytics"]
 segformer = [
     "transformers[torch]",
     "datasets",
@@ -52,7 +52,7 @@ segformer = [
 ]
 all = [
     "opencv-python-headless",
-    "ultrayltics",
+    "ultralytics",
     "transformers[torch]",
     "datasets",
     "torchvision",
