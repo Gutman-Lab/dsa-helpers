@@ -19,7 +19,6 @@ dependencies = [
     'geopandas',
     "rasterio",
     "colorama",
-    "rdp",
     "histomicstk",
     "pykdtree"
 ]

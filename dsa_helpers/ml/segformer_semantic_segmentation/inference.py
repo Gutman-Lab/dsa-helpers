@@ -4,9 +4,8 @@ import histomicstk as htk
 import numpy as np
 import large_image_source_openslide
 from PIL import Image
-from time import perf_counter, sleep
+from time import perf_counter
 from tqdm import tqdm
-from multiprocessing import Pool
 from transformers import (
     SegformerForSemanticSegmentation,
     SegformerImageProcessor,
@@ -94,8 +93,8 @@ def inference(
             dissolving. Defaults to 10.
         fraction (float, optional): Fraction of the maximum dimension
             to use for RDP. Defaults to 0.001.
-        nproc (int, optional): Number of processes to use for parallel
-            RDP. Defaults to 20.
+        nproc (int, optional): Kept for API compatibility. RDP runs
+            in-process via GEOS. Defaults to 20.
         interior_max_area (int, optional): Maximum area of a hole to fill.
             Used when filling gaps created by RDP. Defaults to 100000.
         hematoxylin_channel (bool, optional): Whether to use the
@@ -320,8 +319,8 @@ class SegFormerSSInferenceCleanup:
                 dissolving. Defaults to 1.
             fraction (float, optional): Fraction of the maximum
                 dimension to use for RDP. Defaults to 0.001.
-            nproc (int, optional): Number of processes to use for
-                parallel RDP. Defaults to 20.
+            nproc (int, optional): Kept for API compatibility. RDP
+                runs in-process via GEOS. Defaults to 20.
             interior_max_area (int, optional): Maximum area of a hole
                 to fill. Used when filling gaps created by RDP.
                 Defaults to 100000.
@@ -478,10 +477,6 @@ class SegFormerSSInferenceCleanup:
         gdf = self._make_gpd_valid(gdf)
         return gdf
 
-    def _rdp_polygon(self, geom, idx, fraction):
-        geom = rdp_by_fraction_of_max_dimension(geom, fraction=fraction)
-        return geom, idx
-
     def _fill_rdp_gaps(
         self, gdf: gpd.GeoDataFrame, interior_max_area: int = 100000
     ) -> gpd.GeoDataFrame:
@@ -578,38 +573,14 @@ class SegFormerSSInferenceCleanup:
             perf_counter() - start_time
         )
 
-        # Parallel RDP.
         print("[5/7] Reducing points in polygons via RDP...")
         start_time = perf_counter()
-
-        with Pool(processes=self.nproc) as pool:
-            jobs = [
-                pool.apply_async(
-                    func=self._rdp_polygon,
-                    args=(r["geometry"], i, self.fraction),
-                )
-                for i, r in gdf.iterrows()
-            ]
-
-            n = len(gdf)
-            completed = 0
-
-            # Process jobs as they become ready
-            with tqdm(total=n, desc="Reducing points in polygons") as pbar:
-                while completed < n:
-                    for job in jobs:
-                        if job.ready():
-                            geom, idx = job.get()
-                            gdf.loc[idx, "geometry"] = geom
-                            completed += 1
-                            pbar.update(1)
-                            # Remove completed job from list to avoid checking it again
-                            jobs.remove(job)
-                            break
-                    else:
-                        # Small sleep to avoid busy waiting
-                        sleep(0.01)
-
+        gdf["geometry"] = [
+            rdp_by_fraction_of_max_dimension(geom, fraction=self.fraction)
+            for geom in tqdm(
+                gdf["geometry"], desc="Reducing points in polygons"
+            )
+        ]
         time["rdp"] = perf_counter() - start_time
 
         gdf = self._make_gpd_valid(gdf)

@@ -16,11 +16,10 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from rasterio.features import rasterize
-from rdp import rdp
 from tqdm import tqdm
 
 from shapely import make_valid
-from shapely.geometry import Polygon
+from shapely.geometry import LineString, MultiPolygon, Polygon
 from shapely.ops import unary_union
 
 import matplotlib.patches as mpatches
@@ -114,44 +113,54 @@ def make_multi_polygons(
     return gdf
 
 
-def rdp_by_fraction_of_max_dimension(geom, fraction=0.001):
-    # First grab the exterior coordinates.
-    coords = np.array(geom.exterior.coords)[:, :2]
-
-    # Get the bounding box dimensions
-    bounds = geom.bounds  # (minx, miny, maxx, maxy)
+def _rdp_epsilon_from_bounds(bounds, fraction: float) -> float:
     width = bounds[2] - bounds[0]
     height = bounds[3] - bounds[1]
-    max_dimension = max(width, height)
+    return max(width, height) * fraction
 
-    # Set epsilon as a small fraction of the max dimension
-    epsilon = max_dimension * fraction
 
-    # Run RDP on the exterior of the polygon.
-    mask = rdp(coords, algo="iter", return_mask=True, epsilon=epsilon)
-    exterior_coords = coords[mask]
+def _simplify_ring_coords(coords, epsilon: float) -> np.ndarray:
+    """Douglas-Peucker via GEOS. Same epsilon semantics as the old `rdp` package."""
+    coords = np.asarray(coords, dtype=np.float64)[:, :2]
+    if len(coords) <= 4 or epsilon <= 0:
+        return coords
+    simplified = np.asarray(
+        LineString(coords).simplify(float(epsilon), preserve_topology=False).coords
+    )
+    if len(simplified) < 4:
+        return coords
+    if not np.allclose(simplified[0], simplified[-1]):
+        simplified = np.vstack([simplified, simplified[0]])
+    return simplified
 
-    # Run on the interior polygons if any.
+
+def rdp_by_fraction_of_max_dimension(geom, fraction=0.001):
+    """Simplify polygon rings with Douglas-Peucker.
+
+    Epsilon is ``max(width, height) * fraction`` per ring (exterior and each
+    hole), matching the previous Python ``rdp`` implementation.
+    """
+    if geom is None or geom.is_empty:
+        return geom
+    if geom.geom_type == "MultiPolygon":
+        return MultiPolygon(
+            [rdp_by_fraction_of_max_dimension(g, fraction) for g in geom.geoms]
+        )
+    if geom.geom_type != "Polygon":
+        return geom
+
+    exterior = _simplify_ring_coords(
+        geom.exterior.coords, _rdp_epsilon_from_bounds(geom.bounds, fraction)
+    )
     interiors = []
-    if geom.interiors:
-        for interior in geom.interiors:
-            # Similary, calculate the epsilon for the interior.
-            bounds = interior.bounds
-            width = bounds[2] - bounds[0]
-            height = bounds[3] - bounds[1]
-            max_dimension = max(width, height)
-            epsilon = max_dimension * fraction
-
-            # Run RDP on the interior.
-            coords = np.array(interior.coords)[:, :2]
-            mask = rdp(coords, algo="iter", return_mask=True, epsilon=epsilon)
-            masked_coords = coords[mask]
-            interiors.append(masked_coords)
-
-    # Combine the exterior and interiors.
-    geom = Polygon(exterior_coords, interiors)
-
-    return geom
+    for interior in geom.interiors:
+        interiors.append(
+            _simplify_ring_coords(
+                interior.coords,
+                _rdp_epsilon_from_bounds(interior.bounds, fraction),
+            )
+        )
+    return Polygon(exterior, interiors)
 
 
 def count_polygon_points(polygon: Polygon) -> int:
