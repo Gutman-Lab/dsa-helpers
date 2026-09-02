@@ -8,10 +8,21 @@ Function list:
 
 """
 
-from shapely.geometry import Polygon
-import numpy as np
-import cv2 as cv
-import pandas as pd
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+
+cv = lazy.load("cv2")
+np = lazy.load("numpy")
+pd = lazy.load("pandas")
+shapely = lazy.load("shapely")
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+    from shapely.geometry import Polygon
 
 
 def non_max_suppression(df: pd.DataFrame, thr: float) -> pd.DataFrame:
@@ -125,11 +136,11 @@ def remove_small_holes(
     new_holes = [
         hole
         for hole in polygon.interiors
-        if Polygon(hole).area > hole_area_threshold
+        if shapely.geometry.Polygon(hole).area > hole_area_threshold
     ]
 
     # Create a new polygon with only large holes
-    return Polygon(polygon.exterior, new_holes)
+    return shapely.geometry.Polygon(polygon.exterior, new_holes)
 
 
 def convert_to_json_serializable(
@@ -215,7 +226,7 @@ def contours_to_polygons(binary_image: np.ndarray) -> list[Polygon]:
             child = hierarchy[child][0]  # next sibling hole
 
         used.add(i)
-        polygon = Polygon(exterior, holes)
+        polygon = shapely.geometry.Polygon(exterior, holes)
 
         if not polygon.is_valid:
             # Attempt to fix the polygon
@@ -233,7 +244,7 @@ def contours_to_polygons(binary_image: np.ndarray) -> list[Polygon]:
                 # Skip contours that are too small
                 continue
 
-            poly = Polygon(coords)
+            poly = shapely.geometry.Polygon(coords)
 
             if not poly.is_valid:
                 # Attempt to fix the polygon

@@ -1,6 +1,15 @@
 # Function to read image from disk.
-import cv2 as cv
-import numpy as np
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+
+cv = lazy.load("cv2")
+np = lazy.load("numpy")
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 def imread(fp: str, grayscale: bool = False) -> np.ndarray:

@@ -10,30 +10,34 @@ Functions:
 
 """
 
-import large_image
-import cv2 as cv
-import numpy as np
-from pathlib import Path
-from multiprocessing import Pool
-import pandas as pd
-from shapely.affinity import scale, translate
-import geopandas as gpd
-import histomicstk as htk
+from __future__ import annotations
 
-from . import imwrite, imread
+from multiprocessing import Pool
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+
 from .gpd_utils import draw_gdf_on_array
 
-stain_color_map = htk.preprocessing.color_deconvolution.stain_color_map
+cv = lazy.load("cv2")
+gpd = lazy.load("geopandas")
+htk = lazy.load("histomicstk")
+large_image = lazy.load("large_image")
+np = lazy.load("numpy")
+pd = lazy.load("pandas")
+shapely = lazy.load("shapely")
 
-# specify stains of input image
-stains = [
-    "hematoxylin",  # nuclei stain
-    "eosin",  # cytoplasm stain
-    "null",
-]  # set to null if input contains only two stains
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
 
-# create stain matrix
-W = np.array([stain_color_map[st] for st in stains]).T
+
+def _hematoxylin_stain_matrix():
+    stain_color_map = htk.preprocessing.color_deconvolution.stain_color_map
+    return np.array(
+        [stain_color_map[st] for st in ("hematoxylin", "eosin", "null")]
+    ).T
 
 
 def _proccess_tile_with_masks_from_dsa_annotations(
@@ -59,6 +63,7 @@ def _proccess_tile_with_masks_from_dsa_annotations(
     hematoxylin_channel,
 ):
     """Processing tiles with masks, used in multiprocessing only."""
+    from . import imwrite
     # Calcualte the x and y at magnification desired.
     x_mag = int(scan_x * scan_to_mag_sf)
     y_mag = int(scan_y * scan_to_mag_sf)
@@ -86,7 +91,7 @@ def _proccess_tile_with_masks_from_dsa_annotations(
 
     if hematoxylin_channel:
         img = htk.preprocessing.color_deconvolution.color_deconvolution(
-            img, W
+            img, _hematoxylin_stain_matrix()
         ).Stains[:, :, 0]
         img = np.stack([img, img, img], axis=-1)
 
@@ -115,7 +120,7 @@ def _proccess_tile_with_masks_from_dsa_annotations(
 
     # Translate the coordinates so 0, 0 is the top left corner of the tile.
     tile_gdf["geometry"] = tile_gdf["geometry"].apply(
-        lambda geom: translate(geom, xoff=-x_mag, yoff=-y_mag)
+        lambda geom: shapely.affinity.translate(geom, xoff=-x_mag, yoff=-y_mag)
     )
 
     # Draw the dataframe on the tile mask.
@@ -265,7 +270,7 @@ def tile_wsi_with_masks_from_dsa_annotations(
 
     # Scale the coordinates to mag.
     gdf["geometry"] = gdf["geometry"].apply(
-        lambda geom: scale(
+        lambda geom: shapely.affinity.scale(
             geom, xfact=scan_to_mag_sf, yfact=scan_to_mag_sf, origin=(0, 0)
         )
     )
@@ -358,6 +363,8 @@ def tile_image(
         pandas.DataFrame: A DataFrame with the tile locations.
 
     """
+    from . import imwrite
+
     h, w = img.shape[:2]
 
     img = cv.copyMakeBorder(
@@ -432,6 +439,8 @@ def tile_image_with_mask(
             the image and mask and x, y coordinate.
 
     """
+    from . import imread, imwrite
+
     if isinstance(img, str):
         img = imread(img)
 
@@ -565,6 +574,8 @@ def tile_wsi_for_segformer_semantic_segmentation(
     else:
         from tqdm import tqdm
 
+    from . import imwrite
+
     # Should be a list of string labels.
     if ignore_labels is None:
         ignore_labels = []
@@ -610,7 +621,7 @@ def tile_wsi_for_segformer_semantic_segmentation(
 
     # Scale the coordinates to mag.
     gdf["geometry"] = gdf["geometry"].apply(
-        lambda geom: scale(
+        lambda geom: shapely.affinity.scale(
             geom, xfact=scan_to_mag_sf, yfact=scan_to_mag_sf, origin=(0, 0)
         )
     )
@@ -665,7 +676,7 @@ def tile_wsi_for_segformer_semantic_segmentation(
         if image_type in ("hematoxylin", "both"):
             deconv_img = (
                 htk.preprocessing.color_deconvolution.color_deconvolution(
-                    img, W
+                    img, _hematoxylin_stain_matrix()
                 ).Stains[:, :, 0]
             )
 
@@ -708,7 +719,7 @@ def tile_wsi_for_segformer_semantic_segmentation(
 
         # Translate the coordinates so 0, 0 is the top left corner of the tile.
         tile_gdf["geometry"] = tile_gdf["geometry"].apply(
-            lambda geom: translate(geom, xoff=-x_mag, yoff=-y_mag)
+            lambda geom: shapely.affinity.translate(geom, xoff=-x_mag, yoff=-y_mag)
         )
 
         # Draw the dataframe on the tile mask.

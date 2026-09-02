@@ -4,13 +4,24 @@
 This module contains functions used when working tiles.
 
 """
-from geopandas import GeoDataFrame
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+
 from .image_utils import label_mask_to_polygons
+
+gpd = lazy.load("geopandas")
+
+if TYPE_CHECKING:
+    import geopandas as gpd
 
 
 def merge_tile_masks(
     tile_list: list, buffer: int = 1, background_label: int | None = 0
-) -> GeoDataFrame:
+) -> gpd.GeoDataFrame:
     """
     Merge the tile masks into a single mask for a large image.
 
@@ -41,7 +52,7 @@ def merge_tile_masks(
         )
 
     # Convert polygons and labels into a GeoDataFrame.
-    gdf = GeoDataFrame(polygons_and_labels, columns=["geometry", "label"])
+    gdf = gpd.GeoDataFrame(polygons_and_labels, columns=["geometry", "label"])
 
     # Apply a buffer to make edges touch.
     gdf["geometry"] = gdf["geometry"].buffer(buffer)

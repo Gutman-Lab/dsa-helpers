@@ -26,16 +26,29 @@ Functions:
 
 """
 
-from girder_client import GirderClient, HttpError
-import pickle, shutil, tempfile, re
-import numpy as np
-import pandas as pd
-from pathlib import Path
-import cv2 as cv
+from __future__ import annotations
+
 from copy import deepcopy
-import geopandas as gpd
-from shapely.geometry import Polygon, box, LineString
-from .gpd_utils import remove_gdf_overlaps, make_gpd_valid
+from pathlib import Path
+from typing import TYPE_CHECKING
+import pickle, shutil, tempfile, re
+
+import lazy_loader as lazy
+
+from .gpd_utils import make_gpd_valid, remove_gdf_overlaps
+
+cv = lazy.load("cv2")
+girder_client = lazy.load("girder_client")
+gpd = lazy.load("geopandas")
+np = lazy.load("numpy")
+pd = lazy.load("pandas")
+shapely = lazy.load("shapely")
+
+if TYPE_CHECKING:
+    import geopandas as gpd
+    import numpy as np
+    import pandas as pd
+    from girder_client import GirderClient
 
 STANDARD_MM_PER_PX = 0.0002519
 STANDARD_MAG = 40
@@ -350,7 +363,7 @@ def login(
         girder_client.GirderClient: The authenticated girder client.
 
     """
-    gc = GirderClient(apiUrl=api_url)
+    gc = girder_client.GirderClient(apiUrl=api_url)
 
     if api_key is None:
         if login_or_email is None:
@@ -388,7 +401,7 @@ def get_items(gc: GirderClient, parend_id: str) -> list[dict]:
 
     try:
         items = gc.get(request_url, parameters=params)
-    except HttpError:
+    except girder_client.HttpError:
         params["type"] = "collection"
 
         items = gc.get(request_url, parameters=params)
@@ -771,14 +784,16 @@ def remove_overlapping_annotations(
                     holes = None
 
                 # Add the points as a geometry object.
-                element["geometry"] = Polygon(points, holes=holes)
+                element["geometry"] = shapely.geometry.Polygon(
+                    points, holes=holes
+                )
 
                 # Add the points to the elements to process.
                 elements_to_process.append(element)
             elif element.get("type") == "rectangle":
                 # For ease of use, convert the rectangle to a polyline.
                 coords = get_rectangle_element_coords(element)
-                element["geometry"] = Polygon(coords)
+                element["geometry"] = shapely.geometry.Polygon(coords)
                 element["type"] = "polyline"
 
                 # Remove the keys that are no longer needed.
@@ -802,7 +817,7 @@ def remove_overlapping_annotations(
 
         if max_coords is not None:
             # Create a bounding box polygon.
-            bbox = box(0, 0, max_coords[0], max_coords[1])
+            bbox = shapely.geometry.box(0, 0, max_coords[0], max_coords[1])
 
             # Clip the polygons to the bounding box.
             gdf = gdf.clip(bbox)
@@ -829,7 +844,7 @@ def remove_overlapping_annotations(
             geometry = element.pop("geometry")
 
             # If the object ended up being a line, skipt it.
-            if isinstance(geometry, LineString):
+            if isinstance(geometry, shapely.geometry.LineString):
                 continue
 
             exterior_poly = list(geometry.exterior.coords)
