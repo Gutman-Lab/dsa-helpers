@@ -1,9 +1,13 @@
-import yaml, shutil
+from __future__ import annotations
+
 from pathlib import Path
 from time import perf_counter
-from ultralytics import YOLO
+import shutil
+import yaml
 
-from ...utils import convert_to_json_serializable
+import lazy_loader as lazy
+
+utils = lazy.load("dsa_helpers.utils", suppress_warning=True)
 
 
 def train_yolo(
@@ -92,13 +96,15 @@ def train_yolo(
         train_time (float): Time to train model in seconds.
 
     """
+    import ultralytics
+
     project_dir_path = Path(project_dir)
 
     if not project_dir_path.is_absolute():
         raise ValueError(f"Project directory {project_dir} is not absolute.")
 
     # Load the model.
-    model = YOLO(pretrained_model)
+    model = ultralytics.YOLO(pretrained_model)
 
     if train_kwargs is None:
         train_kwargs = {}
@@ -171,7 +177,7 @@ def train_yolo(
 
         if best_model_path.exists():
             # Reload the model and get results by running validation
-            model = YOLO(str(best_model_path))
+            model = ultralytics.YOLO(str(best_model_path))
             results = model.val(
                 data=str(yaml_path),
                 split="val",
@@ -208,7 +214,7 @@ def train_yolo(
             )
 
             validation_results["train"][names[i]] = (
-                convert_to_json_serializable(metrics.results_dict)
+                utils.convert_to_json_serializable(metrics.results_dict)
             )
 
     if validate_with_val:
@@ -230,8 +236,8 @@ def train_yolo(
                 iou=iou,
             )
 
-            validation_results["val"][names[i]] = convert_to_json_serializable(
-                metrics.results_dict
+            validation_results["val"][names[i]] = (
+                utils.convert_to_json_serializable(metrics.results_dict)
             )
 
     # Remove the runs dir.

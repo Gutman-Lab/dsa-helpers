@@ -1,5 +1,14 @@
-import numpy as np
-from shapely.geometry import Polygon
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+
+np = lazy.load("numpy")
+shapely = lazy.load("shapely")
+
+if TYPE_CHECKING:
+    from shapely.geometry import Polygon
 
 
 def convert_box_type(box):
@@ -101,4 +110,4 @@ def corners_to_polygon(x1: int, y1: int, x2: int, y2: int) -> Polygon:
         Shapely polygon object of the box.
 
     """
-    return Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
+    return shapely.geometry.Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])

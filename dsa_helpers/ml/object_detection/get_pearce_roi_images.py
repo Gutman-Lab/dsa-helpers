@@ -1,9 +1,16 @@
-from girder_client import GirderClient
-import pandas as pd
-from pathlib import Path
+from __future__ import annotations
 
-from ...girder_utils import get_region, get_item_large_image_metadata
-from ... import imwrite
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+
+pd = lazy.load("pandas")
+girder_utils = lazy.load("dsa_helpers.girder_utils", suppress_warning=True)
+
+if TYPE_CHECKING:
+    from girder_client import GirderClient
+    import pandas as pd
 
 
 def get_pearce_roi_images(
@@ -31,6 +38,8 @@ def get_pearce_roi_images(
         pandas.DataFrame: A DataFrame containing metadata for each ROI
 
     """
+    from ... import imwrite
+
     # Create directories to save images and labels.
     img_dir = Path(save_dir) / "images"
     img_dir.mkdir(parents=True, exist_ok=True)
@@ -81,12 +90,14 @@ def get_pearce_roi_images(
         roi_top = int(yc - roi_h / 2)
 
         # Get scale factor to go from scan magnification to mag.
-        scan_mag = get_item_large_image_metadata(gc, item_id)["magnification"]
+        scan_mag = girder_utils.get_item_large_image_metadata(gc, item_id)[
+            "magnification"
+        ]
 
         if mag is None:
             mag = scan_mag
 
-        roi_img = get_region(
+        roi_img = girder_utils.get_region(
             gc, item_id, left=roi_left, top=roi_top, width=roi_w, height=roi_h, mag=mag
         )
 

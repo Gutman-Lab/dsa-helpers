@@ -1,10 +1,20 @@
 """Provides custom callbacks for the Hugging Face Trainer class."""
 
-from transformers import TrainerCallback
-from pathlib import Path
-import pandas as pd
+from __future__ import annotations
+
 from copy import deepcopy
-import os, shutil
+from pathlib import Path
+from typing import TYPE_CHECKING
+import os
+import shutil
+
+import lazy_loader as lazy
+from transformers import TrainerCallback
+
+pd = lazy.load("pandas")
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class MetricsLoggerCallback(TrainerCallback):

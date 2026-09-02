@@ -20,7 +20,8 @@ dependencies = [
     "rasterio",
     "colorama",
     "histomicstk",
-    "pykdtree"
+    "pykdtree",
+    "lazy-loader",
 ]
 
 name = "dsa_helpers"

@@ -1,13 +1,21 @@
-from transformers import SegformerImageProcessor
-from torchvision.transforms import ColorJitter
-import albumentations as A
-from typing import Callable
-import numpy as np
-from PIL import Image
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Callable
+
+import lazy_loader as lazy
+
+A = lazy.load("albumentations")
+np = lazy.load("numpy")
+PIL = lazy.load("PIL")
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 def val_transforms(example_batch):
     """Default transforms for validation images."""
+    from transformers import SegformerImageProcessor
+
     processor = SegformerImageProcessor()
 
     images = [x for x in example_batch["pixel_values"]]
@@ -20,6 +28,8 @@ def val_transforms(example_batch):
 
 def train_transforms(example_batch):
     """Default transforms for training images."""
+    from transformers import SegformerImageProcessor
+    from torchvision.transforms import ColorJitter
 
     processor = SegformerImageProcessor()
     jitter = ColorJitter(
@@ -73,6 +83,9 @@ def get_train_transforms(
             images and labels.
 
     """
+    from transformers import SegformerImageProcessor
+    from torchvision.transforms import ColorJitter
+
     albumentation_pipeline = []
 
     if square_symmetry_prob is not None:
@@ -113,8 +126,8 @@ def get_train_transforms(
                 label = np.array(label)
 
                 augmented = albumentation_pipeline(image=img, mask=label)
-                images.append(Image.fromarray(augmented["image"]))
-                labels.append(Image.fromarray(augmented["mask"]))
+                images.append(PIL.Image.fromarray(augmented["image"]))
+                labels.append(PIL.Image.fromarray(augmented["mask"]))
         else:
             images = batch["pixel_values"]
             labels = batch["label"]

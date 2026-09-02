@@ -1,13 +1,23 @@
-import large_image_source_openslide, ultralytics
-import geopandas as gpd
-import pandas as pd
-import cv2 as cv
-import numpy as np
-from shapely import Polygon
-from time import perf_counter
+from __future__ import annotations
 
-from ...utils import non_max_suppression, return_mag_and_resolution
-from ...gpd_utils import remove_contained_boxes
+from time import perf_counter
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+
+cv = lazy.load("cv2")
+gpd = lazy.load("geopandas")
+gpd_utils = lazy.load("dsa_helpers.gpd_utils", suppress_warning=True)
+large_image_source_openslide = lazy.load("large_image_source_openslide")
+np = lazy.load("numpy")
+pd = lazy.load("pandas")
+shapely = lazy.load("shapely")
+utils = lazy.load("dsa_helpers.utils", suppress_warning=True)
+
+if TYPE_CHECKING:
+    import geopandas as gpd
+    import pandas as pd
+    import ultralytics
 
 
 def yolo_inference_no_iterator(
@@ -79,6 +89,8 @@ def yolo_inference_no_iterator(
         ValueError: If both mag and mm_px are provided.
 
     """
+    import ultralytics
+
     print("This function has not been reviewed yet, use with caution.")
     start_time = perf_counter()
 
@@ -96,9 +108,9 @@ def yolo_inference_no_iterator(
         raise ValueError("Only one of mag or mm_px can be provided.")
     if mag is None and mm_px is None:
         # Use the scan resolution, we use the x resolution.
-        mag, mm_px = return_mag_and_resolution(mm_px=mm_x)
+        mag, mm_px = utils.return_mag_and_resolution(mm_px=mm_x)
     else:
-        mag, mm_px = return_mag_and_resolution(mag=mag, mm_px=mm_px)
+        mag, mm_px = utils.return_mag_and_resolution(mag=mag, mm_px=mm_px)
 
     # Calculate the x and y size of the tile at scan resolution.
     # desired resolution x sf_* -> scan resolution
@@ -226,7 +238,7 @@ def yolo_inference_no_iterator(
                 y2 = int(y2 * sf_y) + y
 
                 # Create the polygon.
-                geom = Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
+                geom = shapely.geometry.Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
                 boxes.append([cls, x1, y1, x2, y2, conf, geom])
 
     gdf = gpd.GeoDataFrame(
@@ -235,8 +247,8 @@ def yolo_inference_no_iterator(
     gdf["box_area"] = gdf.geometry.area
 
     # Clean up predictions further.
-    gdf = non_max_suppression(gdf, conf_thr)
-    gdf = remove_contained_boxes(gdf, iou).reset_index(drop=True)
+    gdf = utils.non_max_suppression(gdf, conf_thr)
+    gdf = gpd_utils.remove_contained_boxes(gdf, iou).reset_index(drop=True)
 
     return gdf, mag, mm_px
 
@@ -314,6 +326,8 @@ def yolo_inference(
         ValueError: If both mag and mm_px are provided.
 
     """
+    import ultralytics
+
     start_time = perf_counter()
 
     if isinstance(model, str):
@@ -330,9 +344,9 @@ def yolo_inference(
         raise ValueError("Only one of mag or mm_px can be provided.")
     if mag is None and mm_px is None:
         # Use the scan resolution, we use the x resolution.
-        mag, mm_px = return_mag_and_resolution(mm_px=mm_x)
+        mag, mm_px = utils.return_mag_and_resolution(mm_px=mm_x)
     else:
-        mag, mm_px = return_mag_and_resolution(mag=mag, mm_px=mm_px)
+        mag, mm_px = utils.return_mag_and_resolution(mag=mag, mm_px=mm_px)
 
     # Calculate the x and y size of the tile at scan resolution.
     # desired resolution x sf_* -> scan resolution
@@ -396,7 +410,7 @@ def yolo_inference(
                 y2 = int(y2 * sf_y) + y
 
                 # Create the polygon.
-                geom = Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
+                geom = shapely.geometry.Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
                 boxes.append([cls, x1, y1, x2, y2, conf, geom])
 
     gdf = gpd.GeoDataFrame(
@@ -404,8 +418,8 @@ def yolo_inference(
     )
     gdf["box_area"] = gdf.geometry.area
 
-    gdf = non_max_suppression(gdf, conf_thr)
-    gdf = remove_contained_boxes(gdf, iou).reset_index(drop=True)
+    gdf = utils.non_max_suppression(gdf, conf_thr)
+    gdf = gpd_utils.remove_contained_boxes(gdf, iou).reset_index(drop=True)
 
     return {
         "gdf": gdf,
@@ -481,6 +495,8 @@ def yolo_inference_on_region(
     Raises:
         ValueError: If the region is out of bounds.
     """
+    import ultralytics
+
     assert left < right and top < bottom, "Region is out of bounds."
 
     if stride is None:
@@ -500,9 +516,9 @@ def yolo_inference_on_region(
         raise ValueError("Only one of mag or mm_px can be provided.")
     if mag is None and mm_px is None:
         # Use the scan resolution, we use the x resolution.
-        mag, mm_px = return_mag_and_resolution(mm_px=mm_x)
+        mag, mm_px = utils.return_mag_and_resolution(mm_px=mm_x)
     else:
-        mag, mm_px = return_mag_and_resolution(mag=mag, mm_px=mm_px)
+        mag, mm_px = utils.return_mag_and_resolution(mag=mag, mm_px=mm_px)
 
     # Calculate the x and y size of the tile at scan resolution.
     # desired resolution x sf_* -> scan resolution
@@ -644,7 +660,7 @@ def yolo_inference_on_region(
                 y2 = int(y2 * sf_y) + y
 
                 # Create the polygon.
-                geom = Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
+                geom = shapely.geometry.Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
                 boxes.append([cls, x1, y1, x2, y2, conf, geom])
 
     gdf = gpd.GeoDataFrame(
@@ -654,8 +670,8 @@ def yolo_inference_on_region(
 
     # Clean up predictions further.
     if nms_iou_thr > 0:
-        gdf = non_max_suppression(gdf, nms_iou_thr)
+        gdf = utils.non_max_suppression(gdf, nms_iou_thr)
     if remove_contained_thr > 0:
-        gdf = remove_contained_boxes(gdf, remove_contained_thr)
+        gdf = gpd_utils.remove_contained_boxes(gdf, remove_contained_thr)
 
     return gdf, mag, mm_px

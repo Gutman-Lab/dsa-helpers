@@ -1,6 +1,15 @@
-from datasets import Dataset, Features, Image, Value
-import pandas as pd
-from .datasets import SegFormerSegmentationDataset
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+
+pd = lazy.load("pandas")
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from .datasets import SegFormerSegmentationDataset
 
 
 def dataset_generator(dataset):
@@ -34,29 +43,32 @@ def create_segformer_segmentation_dataset(
         HuggingFaces SegFormer model training.
 
     """
+    import datasets
+    from .datasets import SegFormerSegmentationDataset
+
     if isinstance(df, str):
         df = pd.read_csv(df, low_memory=low_memory)
 
     dataset = SegFormerSegmentationDataset(df, group=group, extras=extras)
 
     if extras:
-        features = Features(
+        features = datasets.Features(
             {
-                "pixel_values": Image(),
-                "label": Image(),
-                "x": Value("int32"),
-                "y": Value("int32"),
-                "group": Value("string"),
+                "pixel_values": datasets.Image(),
+                "label": datasets.Image(),
+                "x": datasets.Value("int32"),
+                "y": datasets.Value("int32"),
+                "group": datasets.Value("string"),
             }
         )
     else:
-        features = Features(
+        features = datasets.Features(
             {
-                "pixel_values": Image(),
-                "label": Image(),
+                "pixel_values": datasets.Image(),
+                "label": datasets.Image(),
             }
         )
-    dataset = Dataset.from_generator(
+    dataset = datasets.Dataset.from_generator(
         generator=lambda: dataset_generator(dataset), features=features
     )
 

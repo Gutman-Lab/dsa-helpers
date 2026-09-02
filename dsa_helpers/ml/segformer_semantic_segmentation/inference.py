@@ -1,36 +1,31 @@
-import torch
-import geopandas as gpd
-import histomicstk as htk
-import numpy as np
-import large_image_source_openslide
-from PIL import Image
+from __future__ import annotations
+
 from time import perf_counter
-from tqdm import tqdm
-from transformers import (
-    SegformerForSemanticSegmentation,
-    SegformerImageProcessor,
-)
+from typing import TYPE_CHECKING
 
-from shapely import make_valid
-from shapely.affinity import scale
-from shapely.geometry import Polygon
-from shapely.ops import unary_union
+import lazy_loader as lazy
 
-from ...image_utils import label_mask_to_polygons
-from ...gpd_utils import rdp_by_fraction_of_max_dimension, make_multi_polygons
 from ..inference_results import InferenceResult
 
-stain_color_map = htk.preprocessing.color_deconvolution.stain_color_map
+PIL = lazy.load("PIL")
+gpd = lazy.load("geopandas")
+gpd_utils = lazy.load("dsa_helpers.gpd_utils", suppress_warning=True)
+image_utils = lazy.load("dsa_helpers.image_utils", suppress_warning=True)
+large_image_source_openslide = lazy.load("large_image_source_openslide")
+shapely = lazy.load("shapely")
+tqdm = lazy.load("tqdm")
 
-# specify stains of input image
-stains = [
-    "hematoxylin",  # nuclei stain
-    "eosin",  # cytoplasm stain
-    "null",
-]  # set to null if input contains only two stains
+if TYPE_CHECKING:
+    import PIL
+    import geopandas as gpd
+    import large_image_source_openslide
+    import shapely
+    import torch
+    import tqdm
+    import transformers
 
-# create stain matrix
-W = np.array([stain_color_map[st] for st in stains]).T
+    from ... import gpd_utils, image_utils
+
 
 # The standard values are taken from Emory's 40x scanned images.
 STANDARD_MM_PER_PX = 0.0002519
@@ -107,6 +102,9 @@ def inference(
         SegFormerSSInferenceResult: Result object containing the inference output.
 
     """
+    import torch
+    import transformers
+
     # Get the tile source.
     ts = large_image_source_openslide.open(wsi_fp)
 
@@ -151,7 +149,7 @@ def inference(
 
     # Load the model.
     if isinstance(model, str):
-        model = SegformerForSemanticSegmentation.from_pretrained(
+        model = transformers.SegformerForSemanticSegmentation.from_pretrained(
             model, local_files_only=True, device_map=device
         )
 
@@ -166,12 +164,21 @@ def inference(
     batch_n = 0
 
     # Image processor for images.
-    processor = SegformerImageProcessor()
+    processor = transformers.SegformerImageProcessor()
 
     # Track all predicted polygons.
     wsi_polygons = []
 
     results = InferenceResult()
+
+    if hematoxylin_channel:
+        import histomicstk as htk
+        import numpy as np
+
+        stain_color_map = htk.preprocessing.color_deconvolution.stain_color_map
+        W = np.array(
+            [stain_color_map[st] for st in ("hematoxylin", "eosin", "null")]
+        ).T
 
     start_time = perf_counter()
 
@@ -194,7 +201,7 @@ def inference(
             tiles = img_list
 
         # Convert the numpy arrays to PIL images.
-        imgs = [Image.fromarray(img) for img in tiles]
+        imgs = [PIL.Image.fromarray(img) for img in tiles]
 
         # Pass the images through the processor.
         inputs = processor(imgs, return_tensors="pt")
@@ -226,7 +233,7 @@ def inference(
             x_scaled = int(x * sf_x)
             y_scaled = int(y * sf_y)
 
-            polygon_and_labels = label_mask_to_polygons(
+            polygon_and_labels = image_utils.label_mask_to_polygons(
                 mask,
                 x_offset=x_scaled,
                 y_offset=y_scaled,
@@ -251,7 +258,7 @@ def inference(
     if return_raw_gdf:
         # Scale the raw gdf.
         raw_gdf["geometry"] = raw_gdf["geometry"].apply(
-            lambda geom: scale(
+            lambda geom: shapely.affinity.scale(
                 geom, xfact=1 / sf_x, yfact=1 / sf_y, origin=(0, 0)
             )
         )
@@ -269,7 +276,9 @@ def inference(
 
     # Scale the geometries.
     gdf["geometry"] = gdf["geometry"].apply(
-        lambda geom: scale(geom, xfact=1 / sf_x, yfact=1 / sf_y, origin=(0, 0))
+        lambda geom: shapely.affinity.scale(
+            geom, xfact=1 / sf_x, yfact=1 / sf_y, origin=(0, 0)
+        )
     )
 
     cleanup_pipe = SegFormerSSInferenceCleanup(
@@ -344,7 +353,7 @@ class SegFormerSSInferenceCleanup:
 
     def _make_gpd_valid(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         # Make the geometries valid in the gdf, keep only polygons.
-        gdf["geometry"] = gdf["geometry"].apply(make_valid)
+        gdf["geometry"] = gdf["geometry"].apply(shapely.make_valid)
         gdf = gdf.explode(index_parts=False)
         gdf = gdf[
             (gdf["geometry"].geom_type == "Polygon")
@@ -362,7 +371,7 @@ class SegFormerSSInferenceCleanup:
             return gdf
 
         # Loop until the second to last row.
-        for i in tqdm(
+        for i in tqdm.tqdm(
             range(n - 1), total=n - 1, desc="Removing intersections"
         ):
             r1 = gdf.iloc[i]
@@ -383,7 +392,7 @@ class SegFormerSSInferenceCleanup:
 
         n = len(gdf)
 
-        for i in tqdm(range(n), total=n, desc="Removing small holes"):
+        for i in tqdm.tqdm(range(n), total=n, desc="Removing small holes"):
             geom = gdf.iloc[i]["geometry"]
 
             exterior = geom.exterior
@@ -391,10 +400,10 @@ class SegFormerSSInferenceCleanup:
 
             new_interiors = []
             for interior in interiors:
-                if Polygon(interior).area > self.small_hole_thr:
+                if shapely.geometry.Polygon(interior).area > self.small_hole_thr:
                     new_interiors.append(interior)
 
-            geom = Polygon(exterior, new_interiors)
+            geom = shapely.geometry.Polygon(exterior, new_interiors)
 
             gdf.loc[i, "geometry"] = geom
 
@@ -407,12 +416,12 @@ class SegFormerSSInferenceCleanup:
 
         i_removed = []
 
-        for i in tqdm(
+        for i in tqdm.tqdm(
             range(n), total=n, desc="Removing small contained polygons"
         ):
             exterior = gdf.iloc[i]["geometry"].exterior
 
-            geom = Polygon(exterior)
+            geom = shapely.geometry.Polygon(exterior)
 
             if geom.area < self.small_hole_thr:
                 # Check if this is contained in another polygon.
@@ -435,7 +444,7 @@ class SegFormerSSInferenceCleanup:
 
         i_removed = []
 
-        for i in tqdm(
+        for i in tqdm.tqdm(
             range(n), total=n, desc="Removing small polygons not contained"
         ):
             geom = gdf.iloc[i]["geometry"]
@@ -443,7 +452,7 @@ class SegFormerSSInferenceCleanup:
             if geom.geom_type == "MultiPolygon":
                 area = geom.area
             else:
-                area = Polygon(geom.exterior).area
+                area = shapely.geometry.Polygon(geom.exterior).area
 
             if area < self.small_hole_thr:
                 # Check for any touching polygons.
@@ -491,13 +500,13 @@ class SegFormerSSInferenceCleanup:
             # Collect all the holes / interiors.
             for geom in union_geom.geoms:
                 for interior in geom.interiors:
-                    interior = Polygon(interior)
+                    interior = shapely.geometry.Polygon(interior)
 
                     if interior.area < interior_max_area:
                         interiors.append(interior)
         elif union_geom.geom_type == "Polygon":
             for interior in union_geom.interiors:
-                interior = Polygon(interior)
+                interior = shapely.geometry.Polygon(interior)
 
                 if interior.area < interior_max_area:
                     interiors.append(interior)
@@ -507,7 +516,7 @@ class SegFormerSSInferenceCleanup:
             )
 
         # Loop through each hole that was small.
-        for interior in tqdm(interiors, desc="Filling holes between polygons"):
+        for interior in tqdm.tqdm(interiors, desc="Filling holes between polygons"):
             # Check polygons that are touching this interior.
             touching = gdf[gdf["geometry"].distance(interior) == 0]
 
@@ -523,12 +532,12 @@ class SegFormerSSInferenceCleanup:
                 r = touching.iloc[0]
 
                 # Merge the hole with the polygon.
-                geom = unary_union([r["geometry"], interior])
+                geom = shapely.ops.unary_union([r["geometry"], interior])
 
                 if geom.geom_type == "MultiPolygon":
                     # Buff the interior a bit.
                     interior_buffed = interior.buffer(1)
-                    geom = unary_union([interior_buffed, geom])
+                    geom = shapely.ops.unary_union([interior_buffed, geom])
 
                     if geom.geom_type == "MultiPolygon":
                         print(
@@ -550,7 +559,7 @@ class SegFormerSSInferenceCleanup:
 
         print("[1/7] Removing intersections...")
         start_time = perf_counter()
-        gdf = make_multi_polygons(gdf, "label")
+        gdf = gpd_utils.make_multi_polygons(gdf, "label")
         gdf = self._remove_intersections(gdf)
         time["remove-intersections"] = perf_counter() - start_time
 
@@ -576,8 +585,8 @@ class SegFormerSSInferenceCleanup:
         print("[5/7] Reducing points in polygons via RDP...")
         start_time = perf_counter()
         gdf["geometry"] = [
-            rdp_by_fraction_of_max_dimension(geom, fraction=self.fraction)
-            for geom in tqdm(
+            gpd_utils.rdp_by_fraction_of_max_dimension(geom, fraction=self.fraction)
+            for geom in tqdm.tqdm(
                 gdf["geometry"], desc="Reducing points in polygons"
             )
         ]
@@ -587,7 +596,7 @@ class SegFormerSSInferenceCleanup:
 
         print("[6/7] Removing intersections again...")
         start_time = perf_counter()
-        gdf = make_multi_polygons(gdf, "label")
+        gdf = gpd_utils.make_multi_polygons(gdf, "label")
         gdf = self._remove_intersections(gdf)
         time["remove-intersections-2"] = perf_counter() - start_time
 

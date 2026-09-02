@@ -1,6 +1,4 @@
-from transformers import SegformerImageProcessor
-from torchvision.transforms import ColorJitter
-from colorama import Style, Fore
+from colorama import Fore, Style
 
 
 def train_transforms(example_batch):
@@ -10,6 +8,9 @@ def train_transforms(example_batch):
         "This is deprecated, please import from dsa_helpers.ml.segformer_semantic_segmentation.transforms"
     )
     print(Style.RESET_ALL)
+    from transformers import SegformerImageProcessor
+    from torchvision.transforms import ColorJitter
+
     processor = (
         SegformerImageProcessor()
     )  # required for using SegFormer model.
@@ -30,6 +31,8 @@ def val_transforms(example_batch):
         "This is deprecated, please import from dsa_helpers.ml.segformer_semantic_segmentation.transforms"
     )
     print(Style.RESET_ALL)
+    from transformers import SegformerImageProcessor
+
     processor = (
         SegformerImageProcessor()
     )  # required for using SegFormer model.

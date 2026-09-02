@@ -1,6 +1,14 @@
 from collections import deque
-import psutil, threading, time
-import numpy as np
+from typing import TYPE_CHECKING
+import threading, time
+
+import lazy_loader as lazy
+
+np = lazy.load("numpy")
+psutil = lazy.load("psutil")
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 class SystemMonitor:

@@ -1,14 +1,22 @@
-import json
-from os import getenv
-from gridfs import GridFS
-import numpy as np
-from io import BytesIO
-from bson.objectid import ObjectId
-from PIL import Image
-from typing import Union
+from __future__ import annotations
 
-import pymongo
-from pymongo.database import Database
+from io import BytesIO
+from os import getenv
+from typing import TYPE_CHECKING
+import json
+
+import lazy_loader as lazy
+
+bson = lazy.load("bson")
+gridfs = lazy.load("gridfs")
+np = lazy.load("numpy")
+PIL = lazy.load("PIL")
+pymongo = lazy.load("pymongo")
+
+if TYPE_CHECKING:
+    import numpy as np
+    from PIL import Image
+    from pymongo.database import Database
 
 
 def store_json_in_db(mongo_db, json_data: dict, _id: str | None = None) -> str:
@@ -21,7 +29,7 @@ def store_json_in_db(mongo_db, json_data: dict, _id: str | None = None) -> str:
     Returns:
         str: The ID of the stored JSON file.
     """
-    fs = GridFS(mongo_db)
+    fs = gridfs.GridFS(mongo_db)
 
     # Convert dictionary to JSON string
     json_str = json.dumps(json_data)
@@ -32,7 +40,7 @@ def store_json_in_db(mongo_db, json_data: dict, _id: str | None = None) -> str:
             json_str.encode("utf-8"),
             encoding="utf-8",
             content_type="application/json",
-            _id=ObjectId(_id),
+            _id=bson.ObjectId(_id),
         )
     else:
         file_id = fs.put(
@@ -144,7 +152,7 @@ def add_many_to_collection(
     return items
 
 
-def get_img_from_db(mongo_db, img_id: str) -> Union[np.ndarray, None]:
+def get_img_from_db(mongo_db, img_id: str) -> np.ndarray | None:
     """Get an image from the database by its location id.
 
     Args:
@@ -155,9 +163,9 @@ def get_img_from_db(mongo_db, img_id: str) -> Union[np.ndarray, None]:
         np.array: The image, if None then the image was not found.
 
     """
-    fs = GridFS(mongo_db)
+    fs = gridfs.GridFS(mongo_db)
 
-    grid_out = fs.get(ObjectId(img_id))
+    grid_out = fs.get(bson.ObjectId(img_id))
 
     if grid_out:
         # Read the byte data from the GridOut object
@@ -167,7 +175,7 @@ def get_img_from_db(mongo_db, img_id: str) -> Union[np.ndarray, None]:
         byte_io = BytesIO(byte_data)
 
         # Open the image from the BytesIO object
-        src_img = np.array(Image.open(byte_io))
+        src_img = np.array(PIL.Image.open(byte_io))
 
         return src_img
 
@@ -186,11 +194,11 @@ def add_img_to_db(
         str: The image id in the database.
 
     """
-    fs = GridFS(mongo_db)
+    fs = gridfs.GridFS(mongo_db)
 
     # Convert image to PIL image if needed.
     if isinstance(img, np.ndarray):
-        img = Image.fromarray(img)
+        img = PIL.Image.fromarray(img)
 
     # Create a BytesIO object and save the image to it
     byte_io = BytesIO()
@@ -220,7 +228,7 @@ def store_json_in_gridfs(
     Returns:
         str: The ID of the stored JSON file.
     """
-    fs = GridFS(mongo_db)
+    fs = gridfs.GridFS(mongo_db)
 
     # Convert dictionary to JSON string
     json_str = json.dumps(json_data)
@@ -231,7 +239,7 @@ def store_json_in_gridfs(
             json_str.encode("utf-8"),
             encoding="utf-8",
             content_type="application/json",
-            _id=ObjectId(_id),
+            _id=bson.ObjectId(_id),
         )
     else:
         file_id = fs.put(
@@ -254,9 +262,9 @@ def get_json_from_gridfs(mongo_db: Database, json_id: str) -> dict:
         dict: The retrieved dictionary.
 
     """
-    fs = GridFS(mongo_db)
+    fs = gridfs.GridFS(mongo_db)
 
-    grid_out = fs.get(ObjectId(json_id))
+    grid_out = fs.get(bson.ObjectId(json_id))
 
     if grid_out:
         # Read the JSON string and convert it back to a dictionary
