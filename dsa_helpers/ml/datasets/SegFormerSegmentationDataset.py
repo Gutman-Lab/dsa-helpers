@@ -1,7 +1,16 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+from colorama import Fore, Style
 from torch.utils.data import Dataset
-import pandas as pd
-from PIL import Image
-from colorama import Style, Fore
+
+pd = lazy.load("pandas")
+PIL = lazy.load("PIL")
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class SegFormerSegmentationDataset(Dataset):
@@ -39,6 +48,6 @@ class SegFormerSegmentationDataset(Dataset):
 
         # Return image & mask as PIL images in a dictionary.
         return {
-            "pixel_values": Image.open(image_path),
-            "label": Image.open(mask_path),
+            "pixel_values": PIL.Image.open(image_path),
+            "label": PIL.Image.open(mask_path),
         }

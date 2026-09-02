@@ -12,12 +12,22 @@ Note:
     shapely.
 """
 
-import numpy as np
-import cv2 as cv
-from .imread import imread
+from __future__ import annotations
+
 from pathlib import Path
-from shapely.affinity import translate
-from shapely.geometry import Polygon
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+
+cv = lazy.load("cv2")
+np = lazy.load("numpy")
+shapely = lazy.load("shapely")
+
+if TYPE_CHECKING:
+    import cv2 as cv
+    import numpy as np
+    import shapely
+    from shapely.geometry import Polygon
 
 
 def draw_yolo_label_on_img(
@@ -35,6 +45,8 @@ def draw_yolo_label_on_img(
         np.ndarray: The image with the YOLO labels drawn on it.
 
     """
+    from .imread import imread
+
     img = imread(img_fp)
     h, w = img.shape[:2]
 
@@ -89,6 +101,8 @@ def label_mask_to_polygons(
 
     # Read the mask if it's a path.
     if isinstance(mask, str):
+        from .imread import imread
+
         mask = imread(mask, grayscale=True)
 
     # Unique labels, excluding those specified in exclude_labels.
@@ -129,10 +143,14 @@ def label_mask_to_polygons(
         # Convert to shapely polygon objects.
         for data in polygons_dict.values():
             if "polygon" in data:
-                polygon = Polygon(data["polygon"], holes=data["holes"])
+                polygon = shapely.geometry.Polygon(
+                    data["polygon"], holes=data["holes"]
+                )
 
                 # Shift the polygon by the offset.
-                polygon = translate(polygon, xoff=x_offset, yoff=y_offset)
+                polygon = shapely.affinity.translate(
+                    polygon, xoff=x_offset, yoff=y_offset
+                )
 
                 # Include the polygon if it's greater than the minimum area.
                 if polygon.area >= min_area:

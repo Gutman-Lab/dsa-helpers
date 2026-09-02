@@ -1,6 +1,8 @@
-from transformers import SegformerImageProcessor
-from torchvision.transforms import ColorJitter
-from colorama import Style, Fore
+from colorama import Fore, Style
+import lazy_loader as lazy
+
+transformers = lazy.load("transformers")
+torchvision = lazy.load("torchvision")
 
 
 def train_transforms(example_batch):
@@ -11,9 +13,9 @@ def train_transforms(example_batch):
     )
     print(Style.RESET_ALL)
     processor = (
-        SegformerImageProcessor()
+        transformers.SegformerImageProcessor()
     )  # required for using SegFormer model.
-    jitter = ColorJitter(
+    jitter = torchvision.transforms.ColorJitter(
         brightness=0.25, contrast=0.25, saturation=0.25, hue=0.1
     )
 
@@ -31,7 +33,7 @@ def val_transforms(example_batch):
     )
     print(Style.RESET_ALL)
     processor = (
-        SegformerImageProcessor()
+        transformers.SegformerImageProcessor()
     )  # required for using SegFormer model.
 
     images = [x for x in example_batch["pixel_values"]]

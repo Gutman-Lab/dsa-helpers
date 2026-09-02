@@ -1,8 +1,15 @@
-# Utility functions, usualy for creating Datasets in specific formats.
-import pandas as pd
-from .SegFormerSegmentationDataset import SegFormerSegmentationDataset
-from datasets import Dataset, Features, Image
-from colorama import Style, Fore
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+from colorama import Fore, Style
+
+pd = lazy.load("pandas")
+datasets = lazy.load("datasets")
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def dataset_generator(dataset):
@@ -30,6 +37,8 @@ def create_segformer_segmentation_dataset(
         A Dataset object to be used for HuggingFaces SegFormer model training.
 
     """
+    from .SegFormerSegmentationDataset import SegFormerSegmentationDataset
+
     print(Fore.RED)
     print(
         "This is deprecated, please import from dsa_helpers.ml.segformer_semantic_segmentation.datasets"
@@ -40,10 +49,10 @@ def create_segformer_segmentation_dataset(
 
     dataset = SegFormerSegmentationDataset(df)
 
-    dataset = Dataset.from_generator(
+    dataset = datasets.Dataset.from_generator(
         generator=lambda: dataset_generator(dataset),
-        features=Features(
-            {"pixel_values": Image(), "label": Image()}
+        features=datasets.Features(
+            {"pixel_values": datasets.Image(), "label": datasets.Image()}
         ),  # Example shape
     )
 

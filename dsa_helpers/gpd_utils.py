@@ -12,18 +12,24 @@ Functions:
 
 """
 
-import geopandas as gpd
-import numpy as np
-import pandas as pd
-from rasterio.features import rasterize
-from tqdm import tqdm
+from __future__ import annotations
 
-from shapely import make_valid
-from shapely.geometry import LineString, MultiPolygon, Polygon
-from shapely.ops import unary_union
+from typing import TYPE_CHECKING
 
-import matplotlib.patches as mpatches
-import matplotlib.pyplot as plt
+import lazy_loader as lazy
+
+gpd = lazy.load("geopandas")
+np = lazy.load("numpy")
+shapely = lazy.load("shapely")
+tqdm = lazy.load("tqdm")
+
+if TYPE_CHECKING:
+    import geopandas as gpd
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+    import shapely
+    from shapely.geometry import Polygon
 
 
 def remove_contained_boxes(
@@ -94,7 +100,7 @@ def make_multi_polygons(
 
     data = []
 
-    for label in tqdm(unique_labels, desc="Making multi-polygons"):
+    for label in tqdm.tqdm(unique_labels, desc="Making multi-polygons"):
         label_df = gdf[gdf[label_col] == label]
 
         if len(label_df) == 1:
@@ -102,7 +108,7 @@ def make_multi_polygons(
         else:
             r = label_df.iloc[0].copy()
 
-            geom = unary_union(label_df["geometry"].tolist())
+            geom = shapely.ops.unary_union(label_df["geometry"].tolist())
 
             r["geometry"] = geom
 
@@ -125,7 +131,9 @@ def _simplify_ring_coords(coords, epsilon: float) -> np.ndarray:
     if len(coords) <= 4 or epsilon <= 0:
         return coords
     simplified = np.asarray(
-        LineString(coords).simplify(float(epsilon), preserve_topology=False).coords
+        shapely.geometry.LineString(coords).simplify(
+            float(epsilon), preserve_topology=False
+        ).coords
     )
     if len(simplified) < 4:
         return coords
@@ -143,7 +151,7 @@ def rdp_by_fraction_of_max_dimension(geom, fraction=0.001):
     if geom is None or geom.is_empty:
         return geom
     if geom.geom_type == "MultiPolygon":
-        return MultiPolygon(
+        return shapely.geometry.MultiPolygon(
             [rdp_by_fraction_of_max_dimension(g, fraction) for g in geom.geoms]
         )
     if geom.geom_type != "Polygon":
@@ -160,7 +168,7 @@ def rdp_by_fraction_of_max_dimension(geom, fraction=0.001):
                 _rdp_epsilon_from_bounds(interior.bounds, fraction),
             )
         )
-    return Polygon(exterior, interiors)
+    return shapely.geometry.Polygon(exterior, interiors)
 
 
 def count_polygon_points(polygon: Polygon) -> int:
@@ -224,6 +232,9 @@ def plot_gdf(
         tuple[plt.Figure, plt.Axes]: The figure and axes objects.
 
     """
+    import matplotlib.patches as mpatches
+    import matplotlib.pyplot as plt
+
     if figsize is None:
         figsize = (5, 5)
     elif isinstance(figsize, int):
@@ -346,6 +357,8 @@ def draw_gdf_on_array(gdf, shape, id_column="idx", default_value: int = 0):
         numpy.ndarray: The array with the polygons drawn on it.
 
     """
+    from rasterio.features import rasterize
+
     # Create the array.
     array = np.ones(shape, dtype=np.uint8) * default_value
 
@@ -381,7 +394,7 @@ def make_gpd_valid(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         ValueError: If still have MultiPolygons after exploding.
 
     """
-    gdf["geometry"] = gdf["geometry"].apply(make_valid)
+    gdf["geometry"] = gdf["geometry"].apply(shapely.make_valid)
     gdf = gdf.explode(index_parts=False)
 
     # Keep only the polygons and MultiPolygons.

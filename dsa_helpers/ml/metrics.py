@@ -1,13 +1,23 @@
 # -*- coding: utf-8 -*-
 """Metric functions.
 
-This module contains functions used to evaluate the performance of 
+This module contains functions used to evaluate the performance of
 machine learning models.
 
 """
-import torch
-from torch import nn
-import numpy as np
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+
+np = lazy.load("numpy")
+torch = lazy.load("torch")
+
+if TYPE_CHECKING:
+    import numpy as np
+    import torch
 
 
 def binary_dice_coefficient(eval_pred: tuple[np.ndarray, np.ndarray]) -> dict:
@@ -30,7 +40,7 @@ def binary_dice_coefficient(eval_pred: tuple[np.ndarray, np.ndarray]) -> dict:
         logits = torch.from_numpy(logits).cpu()
 
         # Resize the logits to be the same shape as the labels.
-        logits = nn.functional.interpolate(
+        logits = torch.nn.functional.interpolate(
             logits,
             size=labels.shape[-2:],
             mode="bilinear",
@@ -82,7 +92,7 @@ def mean_iou(label2idx: dict):
             num_classes = logits.shape[1]
 
             # Scale the logits back to the shape of the labels.
-            logits_tensor = nn.functional.interpolate(
+            logits_tensor = torch.nn.functional.interpolate(
                 logits_tensor,
                 size=labels.shape[-2:],
                 mode="bilinear",

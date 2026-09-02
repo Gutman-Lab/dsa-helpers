@@ -1,20 +1,24 @@
-import pandas as pd
-from transformers import (
-    SegformerForSemanticSegmentation,
-    TrainingArguments,
-    Trainer,
-)
-import numpy as np
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 import tempfile, shutil
 
-import torch
-from torch import nn
+import lazy_loader as lazy
 
-from .utils import create_segformer_segmentation_dataset
-from .transforms import get_train_transforms, val_transforms
+np = lazy.load("numpy")
+pd = lazy.load("pandas")
+torch = lazy.load("torch")
+transformers = lazy.load("transformers")
+ml_callbacks = lazy.load("dsa_helpers.ml.callbacks", suppress_warning=True)
+
 from .evaluate import per_class_dice_on_dataset
-from ..callbacks import MetricsLoggerCallback, BestModelCallback
+from .transforms import get_train_transforms, val_transforms
+from .utils import create_segformer_segmentation_dataset
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import torch
 
 
 def train(
@@ -133,11 +137,11 @@ def train(
     id2label = {int(v): k for k, v in label2id.items()}
 
     if model_checkpoint is None:
-        model = SegformerForSemanticSegmentation.from_pretrained(
+        model = transformers.SegformerForSemanticSegmentation.from_pretrained(
             "nvidia/mit-b0", id2label=id2label, label2id=label2id
         ).to(device)
     else:
-        model = SegformerForSemanticSegmentation.from_pretrained(
+        model = transformers.SegformerForSemanticSegmentation.from_pretrained(
             model_checkpoint,
             id2label=id2label,
             label2id=label2id,
@@ -150,7 +154,7 @@ def train(
         save_dir = tempfile.mkdtemp()
 
     # Training arguments.
-    training_args = TrainingArguments(
+    training_args = transformers.TrainingArguments(
         str(save_dir),
         learning_rate=learning_rate,
         num_train_epochs=epochs,
@@ -199,7 +203,7 @@ def train(
         logits = torch.from_numpy(logits)
 
         # Scale the logits back to the shape of the labels.
-        logits = nn.functional.interpolate(
+        logits = torch.nn.functional.interpolate(
             logits,
             size=tile_size,
             mode="bilinear",
@@ -246,12 +250,15 @@ def train(
         return metrics
 
     if rank == 0:
-        callbacks = [MetricsLoggerCallback, BestModelCallback(str(save_dir))]
+        callbacks = [
+            ml_callbacks.MetricsLoggerCallback,
+            ml_callbacks.BestModelCallback(str(save_dir)),
+        ]
     else:
-        callbacks = [MetricsLoggerCallback]
+        callbacks = [ml_callbacks.MetricsLoggerCallback]
 
     # Trainer
-    trainer = Trainer(
+    trainer = transformers.Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,

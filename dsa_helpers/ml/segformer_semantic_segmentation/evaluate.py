@@ -1,14 +1,20 @@
-from torch import nn
-import pandas as pd
-import numpy as np
-import torch
+from __future__ import annotations
 
-from .transforms import val_transforms
-from .utils import create_segformer_segmentation_dataset
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+
+np = lazy.load("numpy")
+pd = lazy.load("pandas")
+torch = lazy.load("torch")
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import torch
 
 
 def per_class_dice_on_dataset(
-    model: nn.Module,
+    model: torch.nn.Module,
     data: pd.DataFrame | str,
     label2id: dict[str, int],
     batch_size: int = 16,
@@ -45,6 +51,9 @@ def per_class_dice_on_dataset(
         dict: A dictionary with the keys "mean_dice" and the DICE
             coefficient for each label.
     """
+    from .transforms import val_transforms
+    from .utils import create_segformer_segmentation_dataset
+
     if tqdm_notebook:
         from tqdm.notebook import tqdm
     else:

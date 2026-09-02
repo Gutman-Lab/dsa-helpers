@@ -1,14 +1,22 @@
-from transformers import SegformerImageProcessor
-from torchvision.transforms import ColorJitter
-import albumentations as A
-from typing import Callable
-import numpy as np
-from PIL import Image
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Callable
+
+import lazy_loader as lazy
+
+A = lazy.load("albumentations")
+np = lazy.load("numpy")
+PIL = lazy.load("PIL")
+torchvision = lazy.load("torchvision")
+transformers = lazy.load("transformers")
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 def val_transforms(example_batch):
     """Default transforms for validation images."""
-    processor = SegformerImageProcessor()
+    processor = transformers.SegformerImageProcessor()
 
     images = [x for x in example_batch["pixel_values"]]
     labels = [x for x in example_batch["label"]]
@@ -21,8 +29,8 @@ def val_transforms(example_batch):
 def train_transforms(example_batch):
     """Default transforms for training images."""
 
-    processor = SegformerImageProcessor()
-    jitter = ColorJitter(
+    processor = transformers.SegformerImageProcessor()
+    jitter = torchvision.transforms.ColorJitter(
         brightness=0.25, contrast=0.25, saturation=0.25, hue=0.1
     )
 
@@ -93,14 +101,14 @@ def get_train_transforms(
     else:
         albumentation_pipeline = None
 
-    jitter = ColorJitter(
+    jitter = torchvision.transforms.ColorJitter(
         brightness=brightness,
         contrast=contrast,
         saturation=saturation,
         hue=hue,
     )
 
-    processor = SegformerImageProcessor()
+    processor = transformers.SegformerImageProcessor()
 
     def transform(batch):
         if albumentation_pipeline is not None:
@@ -113,8 +121,8 @@ def get_train_transforms(
                 label = np.array(label)
 
                 augmented = albumentation_pipeline(image=img, mask=label)
-                images.append(Image.fromarray(augmented["image"]))
-                labels.append(Image.fromarray(augmented["mask"]))
+                images.append(PIL.Image.fromarray(augmented["image"]))
+                labels.append(PIL.Image.fromarray(augmented["mask"]))
         else:
             images = batch["pixel_values"]
             labels = batch["label"]

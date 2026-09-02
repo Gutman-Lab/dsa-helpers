@@ -1,11 +1,19 @@
-import pandas as pd
-from geopandas import GeoDataFrame
-from pathlib import Path
-import cv2 as cv
-import numpy as np
+from __future__ import annotations
 
-from ... import imread, imwrite
-from .utils import read_yolo_label, corners_to_polygon
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import lazy_loader as lazy
+
+cv = lazy.load("cv2")
+gpd = lazy.load("geopandas")
+np = lazy.load("numpy")
+pd = lazy.load("pandas")
+
+from .utils import corners_to_polygon, read_yolo_label
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def tile_image(
@@ -35,6 +43,8 @@ def tile_image(
         Metadata of tiles saved.
 
     """
+    from ... import imread, imwrite
+
     # Read the image.
     img = imread(fp)
     h, w = img.shape[:2]
@@ -57,7 +67,7 @@ def tile_image(
 
         label_df.append([label, x1, y1, x2, y2, corners_to_polygon(x1, y1, x2, y2)])
 
-    label_df = GeoDataFrame(
+    label_df = gpd.GeoDataFrame(
         label_df, columns=["label", "x1", "y1", "x2", "y2", "geometry"]
     )
     label_areas = label_df.area

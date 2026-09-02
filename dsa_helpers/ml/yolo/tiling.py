@@ -1,17 +1,21 @@
-"""Tiling function for use in YOLO object detection from Ultrayltics"""
+from __future__ import annotations
 
-import large_image, large_image_source_openslide
-import geopandas as gpd
-import cv2 as cv
-import pandas as pd
 from pathlib import Path
-from tqdm import tqdm
+from typing import TYPE_CHECKING
 
-from shapely import force_2d, Polygon, box
-from shapely.affinity import translate, scale
+import lazy_loader as lazy
 
-from ...utils import return_mag_and_resolution
-from ... import imwrite
+cv = lazy.load("cv2")
+gpd = lazy.load("geopandas")
+large_image = lazy.load("large_image")
+large_image_source_openslide = lazy.load("large_image_source_openslide")
+pd = lazy.load("pandas")
+shapely = lazy.load("shapely")
+tqdm = lazy.load("tqdm")
+utils = lazy.load("dsa_helpers.utils", suppress_warning=True)
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def tile_wsi_for_yolo(
@@ -71,6 +75,8 @@ def tile_wsi_for_yolo(
         pandas.DataFrame: DataFrame with the tile metadata.
 
     """
+    from ... import imwrite
+
     assert len(box_labels) == len(
         set(box_labels)
     ), "Box labels must be unique."
@@ -92,7 +98,7 @@ def tile_wsi_for_yolo(
     label_dir.mkdir(parents=True, exist_ok=True)
 
     gdf = gpd.GeoDataFrame.from_features(geojson_doc["features"])
-    gdf["geometry"] = gdf["geometry"].apply(force_2d)  # remove z-coordinate
+    gdf["geometry"] = gdf["geometry"].apply(shapely.force_2d)  # remove z-coordinate
 
     # Convert the label column, which is a dict to use the value as cell value.
     gdf["label"] = gdf["label"].apply(lambda x: x["value"])
@@ -114,7 +120,7 @@ def tile_wsi_for_yolo(
 
             # Take only the smallest bounding box for each box.
             rect_gdf["geometry"] = rect_gdf["geometry"].apply(
-                lambda geom: Polygon(
+                lambda geom: shapely.geometry.Polygon(
                     [
                         (geom.bounds[0], geom.bounds[1]),  # (minx, miny)
                         (geom.bounds[2], geom.bounds[1]),  # (maxx, miny)
@@ -135,7 +141,7 @@ def tile_wsi_for_yolo(
             poly = r["geometry"]
 
             minx, miny, maxx, maxy = poly.bounds
-            rectangle = box(minx, miny, maxx, maxy)
+            rectangle = shapely.box(minx, miny, maxx, maxy)
             gdf.loc[i, "geometry"] = rectangle
     else:
         poly_gdf = gpd.GeoDataFrame()
@@ -158,7 +164,7 @@ def tile_wsi_for_yolo(
         if stride is None:
             stride = tile_size
 
-        magnification, mm_px = return_mag_and_resolution(mag=magnification)
+        magnification, mm_px = utils.return_mag_and_resolution(mag=magnification)
 
         # Calculate the scale factor on each axis.
         # Calculating a multirplicative factor for going from scan mag to desired mag.
@@ -184,12 +190,12 @@ def tile_wsi_for_yolo(
 
             # Shift the boxes so zero zero is the top left of the ROI.
             box_gdf_copy["geometry"] = box_gdf_copy["geometry"].apply(
-                lambda x: translate(x, xoff=-roi_x1, yoff=-roi_y1)
+                lambda x: shapely.affinity.translate(x, xoff=-roi_x1, yoff=-roi_y1)
             )
 
             # Scale the boxes so they are at the desired magnification.
             box_gdf_copy["geometry"] = box_gdf_copy["geometry"].apply(
-                lambda x: scale(x, xfact=sf_x, yfact=sf_y, origin=(0, 0))
+                lambda x: shapely.affinity.scale(x, xfact=sf_x, yfact=sf_y, origin=(0, 0))
             )
 
             # Get the ROI at the specified resolution.
@@ -213,7 +219,7 @@ def tile_wsi_for_yolo(
                     xys.append((x, y))
 
             # Loop through each tile.
-            for xy in tqdm(xys, desc="Processing tiles"):
+            for xy in tqdm.tqdm(xys, desc="Processing tiles"):
                 x, y = xy
 
                 # Get the tile image.
@@ -223,7 +229,7 @@ def tile_wsi_for_yolo(
                 box_gdf_shifted = box_gdf_copy.copy()
                 box_gdf_shifted["geometry"] = box_gdf_shifted[
                     "geometry"
-                ].apply(lambda geom: translate(geom, xoff=-x, yoff=-y))
+                ].apply(lambda geom: shapely.affinity.translate(geom, xoff=-x, yoff=-y))
 
                 # Add the area of the box to tile.
                 box_gdf_shifted["area"] = box_gdf_shifted["geometry"].area
@@ -237,7 +243,7 @@ def tile_wsi_for_yolo(
                     # Skip the tile.
                     continue
 
-                tile_box = Polygon(
+                tile_box = shapely.geometry.Polygon(
                     [
                         (0, 0),
                         (tile_w, 0),
