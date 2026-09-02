@@ -7,7 +7,6 @@ import yaml
 
 import lazy_loader as lazy
 
-ultralytics = lazy.load("ultralytics")
 utils = lazy.load("dsa_helpers.utils", suppress_warning=True)
 
 
@@ -97,6 +96,8 @@ def train_yolo(
         train_time (float): Time to train model in seconds.
 
     """
+    import ultralytics
+
     project_dir_path = Path(project_dir)
 
     if not project_dir_path.is_absolute():

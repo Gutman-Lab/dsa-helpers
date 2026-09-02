@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 import lazy_loader as lazy
 
 np = lazy.load("numpy")
-torch = lazy.load("torch")
 
 if TYPE_CHECKING:
     import numpy as np
@@ -33,6 +32,8 @@ def binary_dice_coefficient(eval_pred: tuple[np.ndarray, np.ndarray]) -> dict:
         dict: A dictionary containing the dice coefficient.
 
     """
+    import torch
+
     with torch.no_grad():
         logits, labels = eval_pred
 
@@ -76,6 +77,8 @@ def mean_iou(label2idx: dict):
         function: The compute_metrics function.
 
     """
+    import torch
+
     idx2label = {v: k for k, v in label2idx.items()}
 
     def compute_metrics(eval_pred):

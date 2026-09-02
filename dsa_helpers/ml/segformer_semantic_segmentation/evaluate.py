@@ -6,7 +6,6 @@ import lazy_loader as lazy
 
 np = lazy.load("numpy")
 pd = lazy.load("pandas")
-torch = lazy.load("torch")
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -51,6 +50,8 @@ def per_class_dice_on_dataset(
         dict: A dictionary with the keys "mean_dice" and the DICE
             coefficient for each label.
     """
+    import torch
+
     from .transforms import val_transforms
     from .utils import create_segformer_segmentation_dataset
 

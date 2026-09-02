@@ -7,8 +7,6 @@ import lazy_loader as lazy
 A = lazy.load("albumentations")
 np = lazy.load("numpy")
 PIL = lazy.load("PIL")
-torchvision = lazy.load("torchvision")
-transformers = lazy.load("transformers")
 
 if TYPE_CHECKING:
     import numpy as np
@@ -16,7 +14,9 @@ if TYPE_CHECKING:
 
 def val_transforms(example_batch):
     """Default transforms for validation images."""
-    processor = transformers.SegformerImageProcessor()
+    from transformers import SegformerImageProcessor
+
+    processor = SegformerImageProcessor()
 
     images = [x for x in example_batch["pixel_values"]]
     labels = [x for x in example_batch["label"]]
@@ -28,9 +28,11 @@ def val_transforms(example_batch):
 
 def train_transforms(example_batch):
     """Default transforms for training images."""
+    from transformers import SegformerImageProcessor
+    from torchvision.transforms import ColorJitter
 
-    processor = transformers.SegformerImageProcessor()
-    jitter = torchvision.transforms.ColorJitter(
+    processor = SegformerImageProcessor()
+    jitter = ColorJitter(
         brightness=0.25, contrast=0.25, saturation=0.25, hue=0.1
     )
 
@@ -81,6 +83,9 @@ def get_train_transforms(
             images and labels.
 
     """
+    from transformers import SegformerImageProcessor
+    from torchvision.transforms import ColorJitter
+
     albumentation_pipeline = []
 
     if square_symmetry_prob is not None:
@@ -101,14 +106,14 @@ def get_train_transforms(
     else:
         albumentation_pipeline = None
 
-    jitter = torchvision.transforms.ColorJitter(
+    jitter = ColorJitter(
         brightness=brightness,
         contrast=contrast,
         saturation=saturation,
         hue=hue,
     )
 
-    processor = transformers.SegformerImageProcessor()
+    processor = SegformerImageProcessor()
 
     def transform(batch):
         if albumentation_pipeline is not None:

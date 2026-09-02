@@ -12,7 +12,6 @@ large_image_source_openslide = lazy.load("large_image_source_openslide")
 np = lazy.load("numpy")
 pd = lazy.load("pandas")
 shapely = lazy.load("shapely")
-ultralytics = lazy.load("ultralytics")
 utils = lazy.load("dsa_helpers.utils", suppress_warning=True)
 
 if TYPE_CHECKING:
@@ -90,6 +89,8 @@ def yolo_inference_no_iterator(
         ValueError: If both mag and mm_px are provided.
 
     """
+    import ultralytics
+
     print("This function has not been reviewed yet, use with caution.")
     start_time = perf_counter()
 
@@ -325,6 +326,8 @@ def yolo_inference(
         ValueError: If both mag and mm_px are provided.
 
     """
+    import ultralytics
+
     start_time = perf_counter()
 
     if isinstance(model, str):
@@ -492,6 +495,8 @@ def yolo_inference_on_region(
     Raises:
         ValueError: If the region is out of bounds.
     """
+    import ultralytics
+
     assert left < right and top < bottom, "Region is out of bounds."
 
     if stride is None:

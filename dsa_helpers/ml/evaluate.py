@@ -16,7 +16,6 @@ import lazy_loader as lazy
 
 np = lazy.load("numpy")
 pd = lazy.load("pandas")
-torch = lazy.load("torch")
 tqdm = lazy.load("tqdm")
 datasets_utils = lazy.load(
     "dsa_helpers.ml.datasets.utils", suppress_warning=True
@@ -67,6 +66,8 @@ def evaluate_semantic_segmentation_segformer_group(
         float: The mean IoU across all groups.
 
     """
+    import torch
+
     ious = []
 
     # Predict on the images for each group separately.

@@ -1,8 +1,4 @@
 from colorama import Fore, Style
-import lazy_loader as lazy
-
-transformers = lazy.load("transformers")
-torchvision = lazy.load("torchvision")
 
 
 def train_transforms(example_batch):
@@ -12,10 +8,13 @@ def train_transforms(example_batch):
         "This is deprecated, please import from dsa_helpers.ml.segformer_semantic_segmentation.transforms"
     )
     print(Style.RESET_ALL)
+    from transformers import SegformerImageProcessor
+    from torchvision.transforms import ColorJitter
+
     processor = (
-        transformers.SegformerImageProcessor()
+        SegformerImageProcessor()
     )  # required for using SegFormer model.
-    jitter = torchvision.transforms.ColorJitter(
+    jitter = ColorJitter(
         brightness=0.25, contrast=0.25, saturation=0.25, hue=0.1
     )
 
@@ -32,8 +31,10 @@ def val_transforms(example_batch):
         "This is deprecated, please import from dsa_helpers.ml.segformer_semantic_segmentation.transforms"
     )
     print(Style.RESET_ALL)
+    from transformers import SegformerImageProcessor
+
     processor = (
-        transformers.SegformerImageProcessor()
+        SegformerImageProcessor()
     )  # required for using SegFormer model.
 
     images = [x for x in example_batch["pixel_values"]]

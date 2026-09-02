@@ -6,7 +6,6 @@ import lazy_loader as lazy
 from colorama import Fore, Style
 
 pd = lazy.load("pandas")
-datasets = lazy.load("datasets")
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -38,6 +37,7 @@ def create_segformer_segmentation_dataset(
 
     """
     from .SegFormerSegmentationDataset import SegFormerSegmentationDataset
+    import datasets
 
     print(Fore.RED)
     print(

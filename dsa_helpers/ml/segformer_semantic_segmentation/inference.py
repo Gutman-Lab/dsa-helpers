@@ -13,9 +13,7 @@ gpd_utils = lazy.load("dsa_helpers.gpd_utils", suppress_warning=True)
 image_utils = lazy.load("dsa_helpers.image_utils", suppress_warning=True)
 large_image_source_openslide = lazy.load("large_image_source_openslide")
 shapely = lazy.load("shapely")
-torch = lazy.load("torch")
 tqdm = lazy.load("tqdm")
-transformers = lazy.load("transformers")
 
 if TYPE_CHECKING:
     import PIL
@@ -104,6 +102,9 @@ def inference(
         SegFormerSSInferenceResult: Result object containing the inference output.
 
     """
+    import torch
+    import transformers
+
     # Get the tile source.
     ts = large_image_source_openslide.open(wsi_fp)
 

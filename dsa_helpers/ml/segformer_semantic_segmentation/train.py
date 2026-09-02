@@ -8,9 +8,6 @@ import lazy_loader as lazy
 
 np = lazy.load("numpy")
 pd = lazy.load("pandas")
-torch = lazy.load("torch")
-transformers = lazy.load("transformers")
-ml_callbacks = lazy.load("dsa_helpers.ml.callbacks", suppress_warning=True)
 
 from .evaluate import per_class_dice_on_dataset
 from .transforms import get_train_transforms, val_transforms
@@ -113,6 +110,11 @@ def train(
         tuple: A tuple containing the trainer and the results dictionary.
 
     """
+    import torch
+    import transformers
+
+    from .. import callbacks as ml_callbacks
+
     save_dir_path = Path(save_dir)
 
     if rank == 0:

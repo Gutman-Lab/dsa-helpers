@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 import lazy_loader as lazy
 
-datasets = lazy.load("datasets")
 pd = lazy.load("pandas")
 
 if TYPE_CHECKING:
@@ -44,6 +43,7 @@ def create_segformer_segmentation_dataset(
         HuggingFaces SegFormer model training.
 
     """
+    import datasets
     from .datasets import SegFormerSegmentationDataset
 
     if isinstance(df, str):
