@@ -1164,10 +1164,34 @@ def semantic_segmentation_annotation_metrics(
     return metrics
 
 
+def _exclude_ignore_area(
+    gdf: gpd.GeoDataFrame, ignore_geom
+) -> gpd.GeoDataFrame:
+    """Remove ignore geometry, keeping one polygonal row per label."""
+    if len(gdf) == 0 or ignore_geom is None or ignore_geom.is_empty:
+        return gdf
+
+    gdf = gdf.copy()
+    gdf["geometry"] = gdf.geometry.difference(ignore_geom)
+    # Drop holes that were erased completely. Check emptiness before
+    # missingness so empty polygons do not trip GeoSeries.notna.
+    gdf = gdf[~gdf.geometry.is_empty]
+    gdf = gdf[gdf.geometry.notna()]
+    if len(gdf) == 0:
+        return gdf
+
+    gdf = make_gpd_valid(gdf)
+    if len(gdf) == 0:
+        return gdf
+
+    return gdf.dissolve(by="label", as_index=False)
+
+
 def calculate_dice_from_annotations(
     gt_ann_doc: dict,
     inf_ann_doc: dict,
     classes: list[str],
+    ignore_class: str | None = None,
 ) -> tuple[dict, float]:
     """
     Calculate the DICE score between two annotation documents.
@@ -1178,6 +1202,17 @@ def calculate_dice_from_annotations(
         inf_ann_doc (dict): The inference annotation document, in
             geojson format.
         classes (list[str]): Classes to calculate dice scores for.
+        ignore_class (str | None, optional): Ground-truth label whose
+            area is excluded from the Dice calculation. That area is
+            removed from both the ground truth and the inference
+            geometries, so it is left out of the intersection and out
+            of both class areas. Per-class scores and the
+            area-weighted mean both use the remaining ground-truth
+            area. The weighted mean is NaN when no ground-truth area
+            remains. Defaults to None.
+
+    Raises:
+        ValueError: If ignore_class is also in classes.
 
     Returns:
         dict: A dictionary containing the DICE scores for each class.
@@ -1185,11 +1220,25 @@ def calculate_dice_from_annotations(
             area of each class in the ground truth.
 
     """
+    if ignore_class is not None and ignore_class in classes:
+        raise ValueError(
+            f"ignore_class {ignore_class!r} cannot also be in classes."
+        )
+
     gt_gdf = gpd.GeoDataFrame.from_features(gt_ann_doc["features"])
     inf_gdf = gpd.GeoDataFrame.from_features(inf_ann_doc["features"])
 
     gt_gdf["label"] = gt_gdf["label"].apply(lambda x: x["value"])
     inf_gdf["label"] = inf_gdf["label"].apply(lambda x: x["value"])
+
+    # Capture ignore area before class filtering. This label is not in
+    # `classes`.
+    ignore_geom = None
+    if ignore_class is not None:
+        ignore_gdf = gt_gdf[gt_gdf["label"] == ignore_class].copy()
+        ignore_gdf = make_gpd_valid(ignore_gdf)
+        if len(ignore_gdf):
+            ignore_geom = shapely.ops.unary_union(ignore_gdf.geometry)
 
     gt_gdf = gt_gdf[gt_gdf["label"].isin(classes)]
     inf_gdf = inf_gdf[inf_gdf["label"].isin(classes)]
@@ -1200,6 +1249,10 @@ def calculate_dice_from_annotations(
     # Turns the gdfs into a single row per group, as multipolygons as needed.
     gt_gdf = gt_gdf.dissolve(by="label", as_index=False)
     inf_gdf = inf_gdf.dissolve(by="label", as_index=False)
+
+    if ignore_geom is not None and not ignore_geom.is_empty:
+        gt_gdf = _exclude_ignore_area(gt_gdf, ignore_geom)
+        inf_gdf = _exclude_ignore_area(inf_gdf, ignore_geom)
 
     # Iterate through each group.
     dice_scores = []
@@ -1232,9 +1285,13 @@ def calculate_dice_from_annotations(
     class_weights = np.array(class_weights)
 
     # Calculate the weighted mean of the dice scores.
-    weighted_mean_dice = np.sum(dice_scores * class_weights) / np.sum(
-        class_weights
-    )
+    total_weight = np.sum(class_weights)
+    if total_weight:
+        weighted_mean_dice = (
+            np.sum(dice_scores * class_weights) / total_weight
+        )
+    else:
+        weighted_mean_dice = np.nan
 
     dice_scores = {
         cls: float(score) for cls, score in zip(classes, dice_scores)
