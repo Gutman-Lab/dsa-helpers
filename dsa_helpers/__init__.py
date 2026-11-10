@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from .imwrite import imwrite
 
 # Version of the dsa-helpers package
-__version__ = "3.2.4"
+__version__ = "3.2.5"
 
 # Loaded on first access so importing other submodules does not pull in OpenCV.
 __getattr__, __dir__, _ = lazy.attach(

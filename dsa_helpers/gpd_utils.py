@@ -381,8 +381,24 @@ def draw_gdf_on_array(gdf, shape, id_column="idx", default_value: int = 0):
     return array
 
 
+def _polygon_parts(geom) -> list:
+    """Return every Polygon in a geometry, at any nesting depth."""
+    if geom is None or geom.is_empty:
+        return []
+    if geom.geom_type == "Polygon":
+        return [geom]
+    if hasattr(geom, "geoms"):
+        return [p for g in geom.geoms for p in _polygon_parts(g)]
+    return []
+
+
 def make_gpd_valid(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """Make a GeoDataFrame valid, keep only polygons.
+
+    Each geometry is repaired with ``shapely.make_valid`` and split into
+    one row per Polygon. Non-polygonal parts (lines, points) are
+    dropped, and rows with no polygon area are removed. The input
+    GeoDataFrame is not modified.
 
     Args:
         gdf (geopandas.GeoDataFrame): The GeoDataFrame to make valid.
@@ -390,24 +406,21 @@ def make_gpd_valid(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     Returns:
         geopandas.GeoDataFrame: The GeoDataFrame with valid geometries.
 
-    Raises:
-        ValueError: If still have MultiPolygons after exploding.
-
     """
-    gdf["geometry"] = gdf["geometry"].apply(shapely.make_valid)
+    # make_valid can return a GeometryCollection holding a MultiPolygon,
+    # which a single explode does not reach.
+    gdf = gdf.copy()
+    gdf["geometry"] = gdf["geometry"].apply(
+        lambda geom: shapely.geometry.MultiPolygon(
+            _polygon_parts(shapely.make_valid(geom))
+        )
+    )
     gdf = gdf.explode(index_parts=False)
-
-    # Keep only the polygons and MultiPolygons.
-    gdf = gdf[gdf["geometry"].geom_type.isin(["Polygon", "MultiPolygon"])]
-
-    # If multipolygons still exist, explode them.
-    if gdf["geometry"].geom_type.value_counts().get("MultiPolygon", 0) > 0:
-        gdf = gdf.explode(index_parts=False)
-
-        gdf = gdf[gdf["geometry"].geom_type.isin(["Polygon", "MultiPolygon"])]
-
-        # If multipolygons still exist, then we need to raise an error.
-        if gdf["geometry"].geom_type.value_counts().get("MultiPolygon", 0) > 0:
-            raise ValueError("Still have MultiPolygons after exploding.")
+    gdf = gdf[
+        gdf["geometry"].notna()
+        & ~gdf["geometry"].is_empty
+        & (gdf["geometry"].geom_type == "Polygon")
+        & gdf["geometry"].is_valid
+    ]
 
     return gdf.reset_index(drop=True)

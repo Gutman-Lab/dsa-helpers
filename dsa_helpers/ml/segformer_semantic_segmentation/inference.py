@@ -342,7 +342,7 @@ class SegFormerSSInferenceCleanup:
                 raise ValueError(f"Label {label} not in label_ranks.")
             gdf.loc[i, "rank"] = label_ranks.index(r["label"])
 
-        self.__version__ = "1.0.2"
+        self.__version__ = "1.0.3"
         self.input_gdf = gdf
         self.small_hole_thr = small_hole_thr
         self.output_gdf = None
@@ -353,14 +353,7 @@ class SegFormerSSInferenceCleanup:
 
     def _make_gpd_valid(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         # Make the geometries valid in the gdf, keep only polygons.
-        gdf["geometry"] = gdf["geometry"].apply(shapely.make_valid)
-        gdf = gdf.explode(index_parts=False)
-        gdf = gdf[
-            (gdf["geometry"].geom_type == "Polygon")
-            & (gdf["geometry"].is_valid)
-        ]
-
-        return gdf.reset_index(drop=True)
+        return gpd_utils.make_gpd_valid(gdf)
 
     def _remove_intersections(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         # Remove intersections between polygons.
